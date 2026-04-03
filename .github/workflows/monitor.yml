@@ -18,7 +18,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install requests FlightRadar24-API
+        run: pip install requests FlightRadar24
 
       - name: Run FR24 monitor
         env:

@@ -109,7 +109,8 @@ def fetch_flights():
 
         for zone_name, bounds in all_zones:
             try:
-                flights = fr24.get_flights(bounds=bounds)
+                bounds_str = f"{bounds['tl_y']},{bounds['br_y']},{bounds['tl_x']},{bounds['br_x']}"
+                flights = fr24.get_flights(bounds=bounds_str)
                 new = 0
                 for f in flights:
                     fid = getattr(f, "id", None)

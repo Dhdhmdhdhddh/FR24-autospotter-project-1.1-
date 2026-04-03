@@ -79,13 +79,52 @@ RARE_TYPES = ["E4", "VC25", "WB57", "CONC", "BSCA"]
 # FR24 FETCHING
 # ─────────────────────────────────────────────────────────────
 
+def get_all_zones(zones, parent_name=""):
+    """Recursively extract all leaf zones as (name, bounds) tuples."""
+    result = []
+    for name, data in zones.items():
+        if name == "subzones":
+            continue
+        if not isinstance(data, dict):
+            continue
+        full_name = f"{parent_name}/{name}" if parent_name else name
+        subzones = data.get("subzones", {})
+        if subzones:
+            result.extend(get_all_zones(subzones, full_name))
+        else:
+            result.append((full_name, data))
+    return result
+
+
 def fetch_flights():
-    """Login to FR24 and fetch all live flights."""
+    """Login to FR24 and fetch flights across all zones, deduplicated."""
     try:
         fr24 = FlightRadar24API(FR24_USERNAME, FR24_PASSWORD)
-        flights = fr24.get_flights()
-        log.info(f"Fetched {len(flights)} total flights from FR24")
-        return fr24, flights
+        zones = fr24.get_zones()
+        all_zones = get_all_zones(zones)
+        log.info(f"Querying {len(all_zones)} zones...")
+
+        seen_ids = set()
+        all_flights = []
+
+        for zone_name, bounds in all_zones:
+            try:
+                flights = fr24.get_flights(bounds=bounds)
+                new = 0
+                for f in flights:
+                    fid = getattr(f, "id", None)
+                    if fid and fid not in seen_ids:
+                        seen_ids.add(fid)
+                        all_flights.append(f)
+                        new += 1
+                log.info(f"Zone {zone_name}: {len(flights)} flights, {new} new")
+                time.sleep(0.5)  # be polite to FR24
+            except Exception as e:
+                log.warning(f"Zone {zone_name} failed: {e}")
+                continue
+
+        log.info(f"Fetched {len(all_flights)} total unique flights from FR24")
+        return fr24, all_flights
     except Exception as e:
         log.error(f"Failed to fetch FR24 data: {e}")
         return None, None

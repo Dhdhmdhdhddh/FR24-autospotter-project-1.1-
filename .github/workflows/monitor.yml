@@ -1,0 +1,28 @@
+name: FR24 Hourly Monitor
+
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
+
+jobs:
+  run-monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests FlightRadar24-API
+
+      - name: Run FR24 monitor
+        env:
+          FR24_USERNAME:       ${{ secrets.FR24_USERNAME }}
+          FR24_PASSWORD:       ${{ secrets.FR24_PASSWORD }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: python monitor.py

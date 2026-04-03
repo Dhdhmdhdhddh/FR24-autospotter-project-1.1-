@@ -18,29 +18,26 @@ log = logging.getLogger(__name__)
 # CONFIG
 # ─────────────────────────────────────────────────────────────
 
-# These are loaded from GitHub Secrets — do not paste values here
 FR24_USERNAME        = os.environ.get("FR24_USERNAME", "")
 FR24_PASSWORD        = os.environ.get("FR24_PASSWORD", "")
 DISCORD_WEBHOOK_URL  = os.environ.get("DISCORD_WEBHOOK_URL", "")
-
-# Seconds to wait between Discord messages (avoids rate limiting)
 DISCORD_MESSAGE_DELAY = 1.5
 
 # ── Aircraft type watchlist ───────────────────────────────────
-# All flights matching these ICAO type codes will appear in the hourly report
 WATCHLIST_TYPES = [
     "L188", "ZZZZ", "B2",
     "B52",
     "A124", "A148", "A310", "A3ST",
     "AN12", "AN22", "AN26", "AN30", "AN32", "AN72", "AN74",
     "B779", "B74S", "B742", "B741", "B732", "B722", "B703", "B720",
+    "B717", "B733", "B734", "B735", "B736",
     "B1",
     "DC6", "DC5", "DC4", "DC3", "DC2", "DC10", "DC1", "DC7", "DC87", "DC91", "DC9",
-    "C144", "BSCA", "CONC", "BER2", "BER1", "BALL", "DC7",
+    "C144", "BSCA", "CONC", "BER2", "BER1", "BALL",
     "F1", "F104", "F11", "F12", "F14", "F2", "F22", "F35", "F4", "F5", "F16", "F15", "F18",
     "IL62", "IL76", "IL18",
     "L101", "L410",
-    "MD10", "MD81", "MD82", "MD83", "MD87", "MD88", "MD90",
+    "MD10", "MD11", "MD81", "MD82", "MD83", "MD87", "MD88", "MD90",
     "NIM",
     "P3",
     "SGUP",
@@ -51,7 +48,8 @@ WATCHLIST_TYPES = [
     "SLCH", "SHIP",
     "733",
     "BTB2", "RFAL", "CORS",
-    "E6", "E3", "E8",
+    "E6", "E3", "E4", "E8",
+    "VC25",
     "F27", "F28", "F100", "F70",
     "D328",
     "WB57",
@@ -63,17 +61,56 @@ WATCHLIST_REGS = [
 ]
 
 # ── Airline watchlist ─────────────────────────────────────────
-# ICAO airline codes
 WATCHLIST_AIRLINES = [
     "IGY",  # NASA
 ]
 
 # ── Squawk codes to flag ──────────────────────────────────────
-# These will be noted in the embed with a warning
 SQUAWK_WATCH = ["7500", "7600", "7700"]
 
 # ── Rare tier — triggers @everyone ───────────────────────────
 RARE_TYPES = ["E4", "VC25", "WB57", "CONC", "BSCA"]
+
+# ── Excluded airlines (always filtered out) ───────────────────
+EXCLUDED_AIRLINES = [
+    "AVJ",  # Avia Traffic Company
+    "HYH",  # Hayways
+    "SHY",  # Shirak Avia
+    "UTA",  # UTair
+    "AFG",  # Ariana Afghan Airlines
+    "FJO",  # Fly Jordan
+    "SWT",  # Swiftair
+    "DHK",  # DHL Air
+    "DHL",  # DHL
+    "EXC",  # Express Cargo Airlines
+    "SJY",  # Sriwijaya Air
+    "LBZ",  # Nam Air
+    "RBW",  # Rimbun Air
+    "ANU",  # Aero Nusantara Cargo
+    "MJT",  # MJets
+    "SNK",  # Sin-Kung Airways
+    "ARY",  # Airnesia Royal Cargo
+    "TGN",  # Trigana Air
+    "XPR",  # Xpress Air
+    "EID",  # Eastindo
+    "CGD",  # Cardig Air
+    "AZG",  # Silk Way Airlines
+    "KMF",  # Kam Air
+    "EAF",  # East African
+    "PCE",  # Peace Air
+    "CLY",  # Cally Air
+    "AAH",  # Aloha Air Cargo
+]
+
+# ── Excluded type+airline combos ──────────────────────────────
+EXCLUDED_COMBOS = [
+    {"type": "F100", "airline": "UTY"},  # Alliance Airlines F100
+    {"type": "F100", "airline": "QJE"},  # QantasLink F100
+    {"type": "B717", "airline": "DAL"},  # Delta B717
+    {"type": "B717", "airline": "HAL"},  # Hawaiian B717
+    {"type": "MD11", "airline": "FDX"},  # FedEx MD-11
+    {"type": "MD11", "airline": "WGN"},  # Western Global MD-11
+]
 
 # ─────────────────────────────────────────────────────────────
 # FR24 FETCHING
@@ -119,7 +156,7 @@ def fetch_flights():
                         all_flights.append(f)
                         new += 1
                 log.info(f"Zone {zone_name}: {len(flights)} flights, {new} new")
-                time.sleep(0.5)  # be polite to FR24
+                time.sleep(0.5)
             except Exception as e:
                 log.warning(f"Zone {zone_name} failed: {e}")
                 continue
@@ -131,25 +168,43 @@ def fetch_flights():
         return None, None
 
 
-def get_flight_details(fr24, flight):
-    """Fetch detailed info for a single flight."""
+def fetch_most_tracked(fr24):
+    """Fetch FR24's top most tracked flights."""
     try:
-        details = fr24.get_flight_details(flight)
-        return details
-    except Exception:
-        return {}
+        most_tracked = fr24.get_most_tracked_flights()
+        return most_tracked[:10] if most_tracked else []
+    except Exception as e:
+        log.warning(f"Could not fetch most tracked: {e}")
+        return []
 
 
 # ─────────────────────────────────────────────────────────────
 # FILTERING
 # ─────────────────────────────────────────────────────────────
 
+def is_excluded(flight):
+    """Return True if flight should be filtered out."""
+    ftype   = (getattr(flight, "aircraft_code", "") or "").upper()
+    airline = (getattr(flight, "airline_icao",  "") or "").upper()
+
+    # Full airline block
+    if airline in [a.upper() for a in EXCLUDED_AIRLINES]:
+        return True
+
+    # Type + airline combo block
+    for combo in EXCLUDED_COMBOS:
+        if ftype == combo["type"].upper() and airline == combo["airline"].upper():
+            return True
+
+    return False
+
+
 def matches_watchlist(flight):
     """Return True if flight matches any watchlist criteria."""
-    ftype    = (getattr(flight, "aircraft_code", "") or "").upper()
-    reg      = (getattr(flight, "registration",  "") or "").upper()
-    airline  = (getattr(flight, "airline_icao",  "") or "").upper()
-    squawk   = (getattr(flight, "squawk",        "") or "")
+    ftype   = (getattr(flight, "aircraft_code", "") or "").upper()
+    reg     = (getattr(flight, "registration",  "") or "").upper()
+    airline = (getattr(flight, "airline_icao",  "") or "").upper()
+    squawk  = (getattr(flight, "squawk",        "") or "")
 
     if ftype in [t.upper() for t in WATCHLIST_TYPES]:
         return True
@@ -179,15 +234,14 @@ def is_squawk_alert(flight):
 # ─────────────────────────────────────────────────────────────
 
 def safe(val, suffix=""):
-    """Return value with optional suffix, or N/A if empty."""
-    if val is None or str(val).strip() in ("", "0", "None"):
+    if val is None or str(val).strip() in ("", "0", "None", "N/A"):
         return "N/A"
     return f"{val}{suffix}"
 
 
 def get_jetphotos_link(reg):
     if not reg or reg == "N/A":
-        return "N/A"
+        return None
     clean = reg.replace("-", "").replace(" ", "").upper()
     return f"https://www.jetphotos.com/registration/{clean}"
 
@@ -228,9 +282,9 @@ def build_embed(flight, rare, squawk_alert):
     airline  = safe(getattr(flight, "airline_icao",  None))
     origin   = safe(getattr(flight, "origin_airport_iata",      None))
     dest     = safe(getattr(flight, "destination_airport_iata", None))
-    alt      = getattr(flight, "altitude", None)
+    alt      = getattr(flight, "altitude",     None)
     spd      = getattr(flight, "ground_speed", None)
-    squawk   = safe(getattr(flight, "squawk", None))
+    squawk   = safe(getattr(flight, "squawk",  None))
 
     try:
         alt_str = f"{int(alt):,} ft" if alt and int(alt) > 0 else "N/A"
@@ -246,8 +300,8 @@ def build_embed(flight, rare, squawk_alert):
     fr24_link = get_fr24_link(flight)
     age       = format_flight_age(flight)
 
-    jp_val   = f"[Photos]({jp_link})"   if jp_link   != "N/A" else "N/A"
-    fr24_val = f"[Track]({fr24_link})"  if fr24_link else "N/A"
+    jp_val   = f"[Photos]({jp_link})"  if jp_link   else "N/A"
+    fr24_val = f"[Track]({fr24_link})" if fr24_link  else "N/A"
 
     if rare:
         color = 0xFF4500
@@ -263,18 +317,45 @@ def build_embed(flight, rare, squawk_alert):
         "title": title,
         "color": color,
         "fields": [
-            {"name": "Registration",  "value": reg,                   "inline": True},
-            {"name": "Aircraft Type", "value": ftype,                  "inline": True},
-            {"name": "Callsign",      "value": callsign,               "inline": True},
-            {"name": "Airline",       "value": airline,                "inline": True},
-            {"name": "Route",         "value": f"{origin} → {dest}",  "inline": True},
-            {"name": "Squawk",        "value": squawk,                 "inline": True},
-            {"name": "Altitude",      "value": alt_str,                "inline": True},
-            {"name": "Speed",         "value": spd_str,                "inline": True},
-            {"name": "First Seen",    "value": age,                    "inline": True},
-            {"name": "FR24 Live",     "value": fr24_val,               "inline": True},
-            {"name": "JetPhotos",     "value": jp_val,                 "inline": True},
+            {"name": "Registration",  "value": reg,                  "inline": True},
+            {"name": "Aircraft Type", "value": ftype,                 "inline": True},
+            {"name": "Callsign",      "value": callsign,              "inline": True},
+            {"name": "Airline",       "value": airline,               "inline": True},
+            {"name": "Route",         "value": f"{origin} → {dest}", "inline": True},
+            {"name": "Squawk",        "value": squawk,                "inline": True},
+            {"name": "Altitude",      "value": alt_str,               "inline": True},
+            {"name": "Speed",         "value": spd_str,               "inline": True},
+            {"name": "First Seen",    "value": age,                   "inline": True},
+            {"name": "FR24 Live",     "value": fr24_val,              "inline": True},
+            {"name": "JetPhotos",     "value": jp_val,                "inline": True},
         ],
+        "footer": {"text": f"FR24 Monitor • {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"},
+    }
+
+
+def build_most_tracked_embed(most_tracked):
+    """Build a purple embed showing top 10 most tracked flights."""
+    if not most_tracked:
+        return None
+
+    lines = []
+    for i, flight in enumerate(most_tracked, 1):
+        try:
+            callsign = getattr(flight, "callsign", None) or getattr(flight, "identification", {})
+            if isinstance(callsign, dict):
+                callsign = callsign.get("callsign", "N/A")
+            ftype = getattr(flight, "aircraft", {})
+            if isinstance(ftype, dict):
+                ftype = ftype.get("code", {}).get("icao", "N/A")
+            count = getattr(flight, "tracked_by_count", "?")
+            lines.append(f"`{i}.` {callsign} — {ftype} — {count} trackers")
+        except Exception:
+            lines.append(f"`{i}.` Data unavailable")
+
+    return {
+        "title": "📡 Top 10 Most Tracked Right Now",
+        "description": "\n".join(lines),
+        "color": 0x9B59B6,
         "footer": {"text": f"FR24 Monitor • {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"},
     }
 
@@ -305,15 +386,16 @@ def send_flight(flight, rare, squawk_alert):
     time.sleep(DISCORD_MESSAGE_DELAY)
 
 
-def send_summary(total, rare_count, squawk_count):
+def send_summary(total, rare_count, squawk_count, excluded_count):
     now   = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     embed = {
         "title": "📊 Hourly Scan Complete",
         "color": 0x2ECC71,
         "fields": [
-            {"name": "Flights Found",   "value": str(total),        "inline": True},
-            {"name": "Rare Detected",   "value": str(rare_count),   "inline": True},
-            {"name": "Squawk Alerts",   "value": str(squawk_count), "inline": True},
+            {"name": "Flights Shown",    "value": str(total),          "inline": True},
+            {"name": "Rare Detected",    "value": str(rare_count),     "inline": True},
+            {"name": "Squawk Alerts",    "value": str(squawk_count),   "inline": True},
+            {"name": "Filtered Out",     "value": str(excluded_count), "inline": True},
         ],
         "footer": {"text": f"FR24 Monitor • {now}"},
     }
@@ -353,29 +435,50 @@ def main():
         send_fetch_error()
         return
 
-    matched = [f for f in all_flights if matches_watchlist(f)]
-    log.info(f"{len(matched)} flights matched watchlist")
+    matched       = []
+    excluded_count = 0
+
+    for flight in all_flights:
+        if not matches_watchlist(flight):
+            continue
+        if is_excluded(flight):
+            excluded_count += 1
+            continue
+        matched.append(flight)
+
+    log.info(f"{len(matched)} flights matched after exclusions ({excluded_count} excluded)")
 
     if not matched:
         send_zero_flights()
-        return
+    else:
+        rare_count   = 0
+        squawk_count = 0
 
-    rare_count   = 0
-    squawk_count = 0
+        for flight in matched:
+            rare         = is_rare(flight)
+            squawk_alert = is_squawk_alert(flight)
+            if rare:
+                rare_count += 1
+            if squawk_alert:
+                squawk_count += 1
+            send_flight(flight, rare, squawk_alert)
 
-    for flight in matched:
-        rare         = is_rare(flight)
-        squawk_alert = is_squawk_alert(flight)
+        send_summary(
+            total=len(matched),
+            rare_count=rare_count,
+            squawk_count=squawk_count,
+            excluded_count=excluded_count
+        )
 
-        if rare:
-            rare_count += 1
-        if squawk_alert:
-            squawk_count += 1
+    # Top 10 most tracked — always posted at the end
+    most_tracked = fetch_most_tracked(fr24)
+    if most_tracked:
+        embed = build_most_tracked_embed(most_tracked)
+        if embed:
+            time.sleep(DISCORD_MESSAGE_DELAY)
+            send_discord(embed=embed)
 
-        send_flight(flight, rare, squawk_alert)
-
-    send_summary(total=len(matched), rare_count=rare_count, squawk_count=squawk_count)
-    log.info(f"Done. {len(matched)} matched, {rare_count} rare, {squawk_count} squawk alerts.")
+    log.info("Done.")
 
 
 if __name__ == "__main__":

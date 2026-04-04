@@ -3,6 +3,11 @@ name: FR24 Monitor Stagger
 on:
   schedule:
     - cron: "4/8 * * * *"   # runs every 8 minutes, offset by 4 minutes
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
 
 jobs:
   trigger:
@@ -10,6 +15,6 @@ jobs:
 
     steps:
       - name: Trigger main FR24 Monitor workflow
-        run: gh workflow run "FR24 Monitor"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run "FR24 Monitor"

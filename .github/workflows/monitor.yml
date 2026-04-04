@@ -2,8 +2,12 @@ name: FR24 Hourly Monitor
 
 on:
   schedule:
-    - cron: '0 * * * *'
+    - cron: "*/5 * * * *"   # <— changed from hourly to every 5 minutes
   workflow_dispatch:
+
+concurrency:
+  group: fr24-monitor        # <— prevents overlapping runs
+  cancel-in-progress: true
 
 jobs:
   run-monitor:

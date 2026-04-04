@@ -522,17 +522,23 @@ def build_embed(flight, reason):
     fields.append({"name": "FIR/UIR", "value": fmt(extended.get("fir_uir")), "inline": True})
 
     # --- Performance (Extended) ---
-    fields.append({"name": "GPS Altitude", "value": fmt(extended.get("geo_altitude")), "inline": True})
-    fields.append({"name": "Vertical Speed", "value": fmt(flight.vertical_speed), "inline": True})
-    fields.append({"name": "True Airspeed", "value": fmt(extended.get("tas")), "inline": True})
-    fields.append({"name": "Indicated Airspeed", "value": fmt(extended.get("ias")), "inline": True})
-    fields.append({"name": "Mach", "value": fmt(extended.get("mach")), "inline": True})
-    fields.append({"name": "Wind", "value": fmt(extended.get("wind")), "inline": True})
-    fields.append({"name": "Temperature", "value": fmt(extended.get("temp")), "inline": True})
+       perf_block = (
+        f"GPS Altitude: {fmt(extended.get('geo_altitude'))}\n"
+        f"Vertical Speed: {fmt(flight.vertical_speed)}\n"
+        f"True Airspeed: {fmt(extended.get('tas'))}\n"
+        f"Indicated Airspeed: {fmt(extended.get('ias'))}\n"
+        f"Mach: {fmt(extended.get('mach'))}\n"
+        f"Wind: {fmt(extended.get('wind'))}\n"
+        f"Temperature: {fmt(extended.get('temp'))}\n"
+        f"Latitude: {fmt(flight.latitude)}\n"
+        f"Longitude: {fmt(flight.longitude)}"
+    )
 
-    # --- Position ---
-    fields.append({"name": "Latitude", "value": fmt(flight.latitude), "inline": True})
-    fields.append({"name": "Longitude", "value": fmt(flight.longitude), "inline": True})
+    fields.append({
+        "name": "Performance & Position",
+        "value": perf_block,
+        "inline": False
+    })
 
     # ============================================================
     #                VIEWERS + LINKS

@@ -1,20 +1,25 @@
-name: FR24 Hourly Monitor
+name: FR24 Monitor
 
 on:
   schedule:
-    - cron: "*/5 * * * *"   # <— changed from hourly to every 5 minutes
+    - cron: "*/8 * * * *"   # every 8 minutes
   workflow_dispatch:
 
 concurrency:
-  group: fr24-monitor        # <— prevents overlapping runs
+  group: fr24-monitor
   cancel-in-progress: true
 
 jobs:
   run-monitor:
     runs-on: ubuntu-latest
+    timeout-minutes: 3   # prevents stuck runs from blocking future runs
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+
+      - name: Heartbeat log
+        run: echo "Starting FR24 monitor at $(date -u)"
 
       - name: Set up Python
         uses: actions/setup-python@v5

@@ -3,33 +3,40 @@ name: FR24 Fallback Trigger
 on:
   schedule:
     - cron: "*/15 * * * *"   # every 15 minutes
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: fr24-fallback
+  cancel-in-progress: true
 
 jobs:
   fallback:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
 
     steps:
       - name: Check last FR24 Monitor run time
         id: check
         run: |
-          # Fetch the last run of the main workflow
           last_run=$(curl -s \
             https://api.github.com/repos/${{ github.repository }}/actions/workflows/monitor.yml/runs \
             | jq -r '.workflow_runs[0].run_started_at')
 
           echo "Last run: $last_run"
 
-          # Convert timestamps to seconds
           last_ts=$(date -d "$last_run" +%s)
           now_ts=$(date +%s)
-
           diff=$(( now_ts - last_ts ))
 
           echo "Seconds since last run: $diff"
           echo "diff=$diff" >> $GITHUB_OUTPUT
 
       - name: Trigger FR24 Monitor (fallback)
-        if: ${{ steps.check.outputs.diff > 900 }}   # 900 seconds = 15 minutes
-        run: gh workflow run "FR24 Monitor"
+        if: ${{ steps.check.outputs.diff > 900 }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run "FR24 Monitor"

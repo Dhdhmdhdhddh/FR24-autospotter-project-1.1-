@@ -53,6 +53,7 @@ WATCHLIST_TYPES = [
     "F27", "F28", "F100", "F70",
     "D328",
     "WB57",
+    "KFIR",
 ]
 
 WATCHLIST_REGS     = ["N990XB"]
@@ -117,6 +118,7 @@ AIRCRAFT_NAMES = {
     "D328": "Dornier 328", "TRID": "Hawker Siddeley Trident",
     "NIM": "Hawker Siddeley Nimrod", "SGUP": "Airbus Super Guppy",
     "VT23": "Vought F4U Corsair",
+    "KFIR": "IAI Kfir",
 }
 
 AIRLINE_NAMES = {
@@ -137,84 +139,17 @@ AIRLINE_NAMES = {
 # FR24 FETCHING
 # ─────────────────────────────────────────────────────────────
 
-def get_all_zones(zones, parent_name=""):
-    result = []
-    for name, data in zones.items():
-        if name == "subzones":
-            continue
-        if not isinstance(data, dict):
-            continue
-        full_name = f"{parent_name}/{name}" if parent_name else name
-        subzones = data.get("subzones", {})
-        if subzones:
-            result.extend(get_all_zones(subzones, full_name))
-        else:
-            result.append((full_name, data))
-    return result
-
-
-# Manual splits for zones that consistently hit the 1500 cap
-# Each entry: (name, tl_y, br_y, tl_x, br_x)
-EXTRA_ZONES = [
-    # na_cc split into quadrants
-    ("na_cc/nw",       45.92, 36.77, -116.88,  -96.40),
-    ("na_cc/ne",       45.92, 36.77,  -96.40,  -75.91),
-    ("na_cc/sw",       36.77, 27.62, -116.88,  -96.40),
-    ("na_cc/se",       36.77, 27.62,  -96.40,  -75.91),
-    # na_s/w fine, na_s/e still capped — split further
-    ("na_s/w",         41.92,  3.82, -177.83, -115.00),
-    ("na_s/e/n",       41.92, 22.87, -115.00,  -52.48),
-    ("na_s/e/s",       22.87,  3.82, -115.00,  -52.48),
-    # oceania fine as-is
-    ("oceania/nw",     19.62,-18.00,   88.40,  134.00),
-    ("oceania/ne",     19.62,-18.00,  134.00,  180.00),
-    ("oceania/sw",    -18.00,-55.08,   88.40,  134.00),
-    ("oceania/se",    -18.00,-55.08,  134.00,  180.00),
-    # asia/nw and asia/ne fine, asia/sw and asia/se still capped — split further
-    ("asia/nw",        79.98, 46.00,   40.91,  110.00),
-    ("asia/ne",        79.98, 46.00,  110.00,  179.77),
-    ("asia/sw/w",      46.00, 12.48,   40.91,   75.00),
-    ("asia/sw/e",      46.00, 12.48,   75.00,  110.00),
-    ("asia/se/w",      46.00, 12.48,  110.00,  145.00),
-    ("asia/se/e",      46.00, 12.48,  145.00,  179.77),
-    # asia/japan still capped — split north/south
-    ("asia/japan/n",   60.38, 41.48,  113.50,  176.47),
-    ("asia/japan/s",   41.48, 22.58,  113.50,  176.47),
-]
-
-# These zones are replaced by EXTRA_ZONES above
-SKIP_ZONES = {
-    "northamerica/na_c/na_cse",
-    "northamerica/na_c/na_cc",
-    "northamerica/na_s",
-    "oceania",
-    "asia",
-    "asia/japan",
-}
-
-
 def fetch_flights():
+    """Query FR24 once per watchlist type — guarantees global coverage with no zone caps."""
     try:
         fr24 = FlightRadar24API(FR24_USERNAME, FR24_PASSWORD)
-        zones = fr24.get_zones()
-        all_zones = get_all_zones(zones)
         seen_ids = set()
         all_flights = []
 
-        # Build final zone list: skip capped zones, replace with manual splits
-        final_zones = []
-        for zone_name, bounds in all_zones:
-            if zone_name in SKIP_ZONES:
-                continue
-            final_zones.append((zone_name, f"{bounds['tl_y']},{bounds['br_y']},{bounds['tl_x']},{bounds['br_x']}"))
-        for name, tl_y, br_y, tl_x, br_x in EXTRA_ZONES:
-            final_zones.append((name, f"{tl_y},{br_y},{tl_x},{br_x}"))
-
-        log.info(f"Querying {len(final_zones)} zones (with manual splits)...")
-
-        for zone_name, bounds_str in final_zones:
+        # Query by each aircraft type
+        for ftype in WATCHLIST_TYPES:
             try:
-                flights = fr24.get_flights(bounds=bounds_str)
+                flights = fr24.get_flights(aircraft_type=ftype)
                 new = 0
                 for f in flights:
                     fid = getattr(f, "id", None)
@@ -222,13 +157,50 @@ def fetch_flights():
                         seen_ids.add(fid)
                         all_flights.append(f)
                         new += 1
-                log.info(f"Zone {zone_name}: {len(flights)} flights, {new} new")
-                time.sleep(0.5)
+                if flights:
+                    log.info(f"Type {ftype}: {len(flights)} flights, {new} new")
+                time.sleep(0.3)
             except Exception as e:
-                log.warning(f"Zone {zone_name} failed: {e}")
+                log.warning(f"Type {ftype} failed: {e}")
                 continue
 
-        log.info(f"Fetched {len(all_flights)} total unique flights from FR24")
+        # Query by each watched registration
+        for reg in WATCHLIST_REGS:
+            try:
+                flights = fr24.get_flights(registration=reg)
+                new = 0
+                for f in flights:
+                    fid = getattr(f, "id", None)
+                    if fid and fid not in seen_ids:
+                        seen_ids.add(fid)
+                        all_flights.append(f)
+                        new += 1
+                if flights:
+                    log.info(f"Reg {reg}: {len(flights)} flights, {new} new")
+                time.sleep(0.3)
+            except Exception as e:
+                log.warning(f"Reg {reg} failed: {e}")
+                continue
+
+        # Query by each watched airline
+        for airline in WATCHLIST_AIRLINES:
+            try:
+                flights = fr24.get_flights(airline=airline)
+                new = 0
+                for f in flights:
+                    fid = getattr(f, "id", None)
+                    if fid and fid not in seen_ids:
+                        seen_ids.add(fid)
+                        all_flights.append(f)
+                        new += 1
+                if flights:
+                    log.info(f"Airline {airline}: {len(flights)} flights, {new} new")
+                time.sleep(0.3)
+            except Exception as e:
+                log.warning(f"Airline {airline} failed: {e}")
+                continue
+
+        log.info(f"Fetched {len(all_flights)} total unique flights")
         return fr24, all_flights
     except Exception as e:
         log.error(f"Failed to fetch FR24 data: {e}")

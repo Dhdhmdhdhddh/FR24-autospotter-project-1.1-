@@ -251,33 +251,18 @@ def fetch_flights():
 def fetch_most_tracked(fr24):
     try:
         result = fr24.get_most_tracked()
-        # ─── DIAGNOSTIC LOGGING ───────────────────────────────
-        log.warning("=== MOST TRACKED RAW RESPONSE START ===")
-        log.warning(str(result)[:2000])  # print first 2000 chars
-        log.warning("=== MOST TRACKED RAW RESPONSE END ===")
 
-        # If it's a list, inspect the first entry
-        if isinstance(result, list) and result:
-            log.warning("First entry (list): " + str(result[0]))
-
-        # If it's a dict, inspect keys
-        if isinstance(result, dict):
-            log.warning("Dict keys: " + ", ".join(result.keys()))
-            flights_preview = result.get("flights") or result.get("data")
-            if flights_preview:
-                log.warning("First flight entry: " + str(flights_preview[0]))
-        # Result is a dict with a list inside
         if isinstance(result, dict):
             flights = result.get("flights", result.get("data", []))
         elif isinstance(result, list):
             flights = result
         else:
             flights = []
+
         return flights[:10] if flights else []
     except Exception as e:
         log.warning(f"Could not fetch most tracked: {e}")
         return []
-
 # ─────────────────────────────────────────────────────────────
 # FILTERING
 # ─────────────────────────────────────────────────────────────
@@ -515,19 +500,18 @@ def build_embed(flight, reason):
 
 
 def build_most_tracked_embed(most_tracked):
+def build_most_tracked_embed(most_tracked):
     if not most_tracked:
         return None
 
     lines = []
     for i, flight in enumerate(most_tracked, 1):
         try:
-            callsign = getattr(flight, "callsign", None) or getattr(flight, "identification", {})
-            if isinstance(callsign, dict):
-                callsign = callsign.get("callsign", "N/A")
-            ftype = getattr(flight, "aircraft", {})
-            if isinstance(ftype, dict):
-                ftype = ftype.get("code", {}).get("icao", "N/A")
-            count = getattr(flight, "tracked_by_count", "?")
+            # flight is a dict, not an object
+            callsign = flight.get("callsign", "N/A")
+            ftype    = flight.get("model", "N/A")   # ICAO type (e.g., B77W, A388)
+            count    = flight.get("clicks", "?")    # tracker count
+
             lines.append(f"`{i}.` {callsign} — {ftype} — {count} trackers")
         except Exception:
             lines.append(f"`{i}.` Data unavailable")
@@ -536,7 +520,9 @@ def build_most_tracked_embed(most_tracked):
         "title": "📡 Top 10 Most Tracked Right Now",
         "description": "\n".join(lines),
         "color": 0x9B59B6,
-        "footer": {"text": f"FR24 Monitor • {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"},
+        "footer": {
+            "text": f"FR24 Monitor • {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"
+        },
     }
 
 

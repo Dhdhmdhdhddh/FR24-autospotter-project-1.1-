@@ -485,10 +485,11 @@ def build_embed(flight, reason):
     fields.append({"name": "Registration", "value": fmt(flight.registration), "inline": True})
     fields.append({"name": "Airline", "value": fmt(flight.airline_icao), "inline": True})
     fields.append({"name": "Callsign", "value": fmt(flight.callsign), "inline": True})
-    origin = getattr(flight, "origin_airport_iata", "") or "???"
-dest = getattr(flight, "destination_airport_iata", "") or "???"
-route_str = f"{origin} → {dest}"
-fields.append({"name": "Route", "value": fmt(route_str), "inline": True})
+       origin = getattr(flight, "origin_airport_iata", "") or "???"
+    dest = getattr(flight, "destination_airport_iata", "") or "???"
+    route_str = f"{origin} → {dest}"
+    fields.append({"name": "Route", "value": fmt(route_str), "inline": True})
+
 
 
     # --- Performance ---

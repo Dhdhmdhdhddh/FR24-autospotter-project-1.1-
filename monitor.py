@@ -251,6 +251,21 @@ def fetch_flights():
 def fetch_most_tracked(fr24):
     try:
         result = fr24.get_most_tracked()
+        # ─── DIAGNOSTIC LOGGING ───────────────────────────────
+        log.warning("=== MOST TRACKED RAW RESPONSE START ===")
+        log.warning(str(result)[:2000])  # print first 2000 chars
+        log.warning("=== MOST TRACKED RAW RESPONSE END ===")
+
+        # If it's a list, inspect the first entry
+        if isinstance(result, list) and result:
+            log.warning("First entry (list): " + str(result[0]))
+
+        # If it's a dict, inspect keys
+        if isinstance(result, dict):
+            log.warning("Dict keys: " + ", ".join(result.keys()))
+            flights_preview = result.get("flights") or result.get("data")
+            if flights_preview:
+                log.warning("First flight entry: " + str(flights_preview[0]))
         # Result is a dict with a list inside
         if isinstance(result, dict):
             flights = result.get("flights", result.get("data", []))

@@ -591,8 +591,9 @@ def send_discord(content=None, embed=None):
     payload = {}
     if content:
         payload["content"] = content
-if embed:
-    payload["embeds"] = embed["embeds"]
+    if embed:
+        payload["embeds"] = embed["embeds"]
+
 
     try:
         r = requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10)

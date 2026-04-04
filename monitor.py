@@ -156,20 +156,30 @@ def get_all_zones(zones, parent_name=""):
 # Manual splits for zones that consistently hit the 1500 cap
 # Each entry: (name, tl_y, br_y, tl_x, br_x)
 EXTRA_ZONES = [
-    ("na_cc/nw",     45.92, 36.77, -116.88,  -96.40),
-    ("na_cc/ne",     45.92, 36.77,  -96.40,  -75.91),
-    ("na_cc/sw",     36.77, 27.62, -116.88,  -96.40),
-    ("na_cc/se",     36.77, 27.62,  -96.40,  -75.91),
-    ("na_s/w",       41.92,  3.82, -177.83, -115.00),
-    ("na_s/e",       41.92,  3.82, -115.00,  -52.48),
-    ("oceania/nw",   19.62,-18.00,   88.40,  134.00),
-    ("oceania/ne",   19.62,-18.00,  134.00,  180.00),
-    ("oceania/sw",  -18.00,-55.08,   88.40,  134.00),
-    ("oceania/se",  -18.00,-55.08,  134.00,  180.00),
-    ("asia/nw",      79.98, 46.00,   40.91,  110.00),
-    ("asia/ne",      79.98, 46.00,  110.00,  179.77),
-    ("asia/sw",      46.00, 12.48,   40.91,  110.00),
-    ("asia/se",      46.00, 12.48,  110.00,  179.77),
+    # na_cc split into quadrants
+    ("na_cc/nw",       45.92, 36.77, -116.88,  -96.40),
+    ("na_cc/ne",       45.92, 36.77,  -96.40,  -75.91),
+    ("na_cc/sw",       36.77, 27.62, -116.88,  -96.40),
+    ("na_cc/se",       36.77, 27.62,  -96.40,  -75.91),
+    # na_s/w fine, na_s/e still capped — split further
+    ("na_s/w",         41.92,  3.82, -177.83, -115.00),
+    ("na_s/e/n",       41.92, 22.87, -115.00,  -52.48),
+    ("na_s/e/s",       22.87,  3.82, -115.00,  -52.48),
+    # oceania fine as-is
+    ("oceania/nw",     19.62,-18.00,   88.40,  134.00),
+    ("oceania/ne",     19.62,-18.00,  134.00,  180.00),
+    ("oceania/sw",    -18.00,-55.08,   88.40,  134.00),
+    ("oceania/se",    -18.00,-55.08,  134.00,  180.00),
+    # asia/nw and asia/ne fine, asia/sw and asia/se still capped — split further
+    ("asia/nw",        79.98, 46.00,   40.91,  110.00),
+    ("asia/ne",        79.98, 46.00,  110.00,  179.77),
+    ("asia/sw/w",      46.00, 12.48,   40.91,   75.00),
+    ("asia/sw/e",      46.00, 12.48,   75.00,  110.00),
+    ("asia/se/w",      46.00, 12.48,  110.00,  145.00),
+    ("asia/se/e",      46.00, 12.48,  145.00,  179.77),
+    # asia/japan still capped — split north/south
+    ("asia/japan/n",   60.38, 41.48,  113.50,  176.47),
+    ("asia/japan/s",   41.48, 22.58,  113.50,  176.47),
 ]
 
 # These zones are replaced by EXTRA_ZONES above
@@ -179,6 +189,7 @@ SKIP_ZONES = {
     "northamerica/na_s",
     "oceania",
     "asia",
+    "asia/japan",
 }
 
 
@@ -226,8 +237,15 @@ def fetch_flights():
 
 def fetch_most_tracked(fr24):
     try:
-        most_tracked = fr24.get_most_tracked()
-        return most_tracked[:10] if most_tracked else []
+        result = fr24.get_most_tracked()
+        # Result is a dict with a list inside
+        if isinstance(result, dict):
+            flights = result.get("flights", result.get("data", []))
+        elif isinstance(result, list):
+            flights = result
+        else:
+            flights = []
+        return flights[:10] if flights else []
     except Exception as e:
         log.warning(f"Could not fetch most tracked: {e}")
         return []

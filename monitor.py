@@ -522,7 +522,7 @@ def build_embed(flight, reason):
     fields.append({"name": "FIR/UIR", "value": fmt(extended.get("fir_uir")), "inline": True})
 
     # --- Performance (Extended) ---
-       perf_block = (
+    perf_block = (
         f"GPS Altitude: {fmt(extended.get('geo_altitude'))}\n"
         f"Vertical Speed: {fmt(flight.vertical_speed)}\n"
         f"True Airspeed: {fmt(extended.get('tas'))}\n"

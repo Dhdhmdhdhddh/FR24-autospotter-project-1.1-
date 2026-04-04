@@ -341,6 +341,109 @@ REASON_LABELS = {
 # ─────────────────────────────────────────────────────────────
 # DISCORD
 # ─────────────────────────────────────────────────────────────
+# ============================================================
+#                HELPER FUNCTIONS REQUIRED BY build_embed
+# ============================================================
+
+def get_aircraft_info(flight):
+    reg = flight.registration
+    if not reg:
+        return {}
+
+    try:
+        url = f"https://api.planespotters.net/pub/photos/reg/{reg}"
+        r = requests.get(url, timeout=5).json()
+
+        info = r.get("aircraft", [{}])[0]
+
+        return {
+            "full_name": info.get("type", "N/A"),
+            "msn": info.get("msn", "N/A"),
+            "age": info.get("age", "N/A"),
+            "country": info.get("country", "N/A"),
+            "category": info.get("category", "N/A")
+        }
+    except:
+        return {}
+
+
+def get_extended_details(flight):
+    try:
+        fr = FlightRadar24API()
+        details = fr.get_flight_details(flight.id)
+
+        return {
+            "source": details.get("source"),
+            "geo_altitude": details.get("geo_altitude"),
+            "tas": details.get("tas"),
+            "ias": details.get("ias"),
+            "mach": details.get("mach"),
+            "wind": details.get("wind"),
+            "temp": details.get("temp"),
+            "fir_uir": details.get("fir", "N/A")
+        }
+    except:
+        return {}
+
+
+def get_recent_flights(flight):
+    try:
+        fr = FlightRadar24API()
+        details = fr.get_flight_details(flight.id)
+
+        history = details.get("trail", [])
+        routes = []
+
+        for entry in history[:3]:
+            orig = entry.get("origin", "???")
+            dest = entry.get("destination", "???")
+            routes.append(f"{orig} → {dest}")
+
+        return routes
+    except:
+        return []
+
+
+def get_image_url(flight, aircraft_info):
+    reg = flight.registration
+    if not reg:
+        return None
+
+    try:
+        url = f"https://api.planespotters.net/pub/photos/reg/{reg}"
+        r = requests.get(url, timeout=5).json()
+
+        photos = r.get("photos", [])
+        if not photos:
+            return None
+
+        return photos[0].get("thumbnail_large")
+    except:
+        return None
+
+
+def get_viewer_count(flight):
+    try:
+        callsign = flight.callsign
+        if not callsign:
+            return "N/A"
+
+        url = f"https://www.flightradar24.com/{callsign}"
+        html = requests.get(url, timeout=5).text
+
+        marker = '"viewers":'
+        idx = html.find(marker)
+        if idx == -1:
+            return "N/A"
+
+        start = idx + len(marker)
+        end = html.find(",", start)
+        viewers = html[start:end].strip()
+
+        return viewers if viewers else "N/A"
+
+    except:
+        return "N/A"
 
 def build_embed(flight, reason):
     # Helper to cleanly format values

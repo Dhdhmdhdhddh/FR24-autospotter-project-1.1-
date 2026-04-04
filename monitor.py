@@ -427,8 +427,11 @@ def build_embed(flight, reason):
     fields.append({"name": "Longitude", "value": fmt(flight.longitude), "inline": True})
 
     # ============================================================
-    #                LINKS (BEFORE IMAGE)
+    #                VIEWERS + LINKS
     # ============================================================
+
+    viewer_count = get_viewer_count(flight)
+    fields.append({"name": "Viewers", "value": fmt(viewer_count), "inline": True})
 
     links = (
         f"[FR24 Live](https://www.flightradar24.com/{fmt(flight.callsign)}) · "

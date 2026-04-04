@@ -518,8 +518,17 @@ def main():
         send_fetch_error()
         return
 
+    # ADD THIS HERE:
+    if all_flights:
+        flight = all_flights[0]
+        print("\n=== FLIGHT DATA DEBUG ===")
+        print(flight.__dict__)
+        print("=========================\n")
+
     matched        = []
     excluded_count = 0
+    
+    # ... rest of your code ...
 
     for flight in all_flights:
         if not matches_watchlist(flight):

@@ -139,6 +139,22 @@ AIRLINE_NAMES = {
 # FR24 FETCHING
 # ─────────────────────────────────────────────────────────────
 
+def get_all_zones(zones, parent_name=""):
+    result = []
+    for name, data in zones.items():
+        if name == "subzones":
+            continue
+        if not isinstance(data, dict):
+            continue
+        full_name = f"{parent_name}/{name}" if parent_name else name
+        subzones = data.get("subzones", {})
+        if subzones:
+            result.extend(get_all_zones(subzones, full_name))
+        else:
+            result.append((full_name, data))
+    return result
+
+
 def fetch_flights():
     """Query FR24 once per watchlist type — guarantees global coverage with no zone caps."""
     try:
@@ -198,6 +214,31 @@ def fetch_flights():
                 time.sleep(0.3)
             except Exception as e:
                 log.warning(f"Airline {airline} failed: {e}")
+                continue
+
+        # Squawk scan — zone-based but only keeps emergency squawks
+        log.info("Running squawk scan...")
+        squawk_zones = fr24.get_zones()
+        squawk_zone_list = get_all_zones(squawk_zones)
+        for zone_name, bounds in squawk_zone_list:
+            try:
+                bounds_str = f"{bounds['tl_y']},{bounds['br_y']},{bounds['tl_x']},{bounds['br_x']}"
+                flights = fr24.get_flights(bounds=bounds_str)
+                new = 0
+                for f in flights:
+                    squawk = (getattr(f, "squawk", "") or "")
+                    if squawk not in SQUAWK_WATCH:
+                        continue
+                    fid = getattr(f, "id", None)
+                    if fid and fid not in seen_ids:
+                        seen_ids.add(fid)
+                        all_flights.append(f)
+                        new += 1
+                if new:
+                    log.info(f"Squawk zone {zone_name}: {new} emergency flights found")
+                time.sleep(0.3)
+            except Exception as e:
+                log.warning(f"Squawk zone {zone_name} failed: {e}")
                 continue
 
         log.info(f"Fetched {len(all_flights)} total unique flights")

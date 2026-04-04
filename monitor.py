@@ -55,11 +55,12 @@ WATCHLIST_TYPES = [
     "WB57",
 ]
 
-WATCHLIST_REGS = ["N990XB"]
+WATCHLIST_REGS     = ["N990XB"]
 WATCHLIST_AIRLINES = ["IGY"]  # NASA
-SQUAWK_WATCH = ["7500", "7600", "7700"]
-RARE_TYPES = ["E4", "VC25", "WB57", "CONC", "BSCA"]
+SQUAWK_WATCH       = ["7500", "7600", "7700"]
+RARE_TYPES         = ["E4", "VC25", "WB57", "CONC", "BSCA"]
 
+# Add airlines here as you spot spammy ones
 EXCLUDED_AIRLINES = []
 
 EXCLUDED_COMBOS = [
@@ -69,10 +70,11 @@ EXCLUDED_COMBOS = [
     {"type": "B717", "airline": "HAL"},  # Hawaiian
     {"type": "MD11", "airline": "FDX"},  # FedEx
     {"type": "MD11", "airline": "WGN"},  # Western Global
+    {"type": "B733", "airline": "EXS"},  # Jet2
 ]
 
 # ─────────────────────────────────────────────────────────────
-# LOOKUP TABLES — full names for ICAO codes
+# LOOKUP TABLES
 # ─────────────────────────────────────────────────────────────
 
 AIRCRAFT_NAMES = {
@@ -108,15 +110,12 @@ AIRCRAFT_NAMES = {
     "V22": "Bell Boeing V-22 Osprey", "VC25": "Boeing VC-25 (Air Force One)",
     "E6": "Boeing E-6 Mercury", "E3": "Boeing E-3 Sentry (AWACS)",
     "E4": "Boeing E-4B Nightwatch", "E8": "Boeing E-8 JSTARS",
-    "C5M": "Lockheed C-5 Galaxy", "C17": "Boeing C-17 Globemaster III",
     "WB57": "Martin WB-57", "VC10": "Vickers VC10",
     "CONC": "Aerospatiale/BAC Concorde", "BSCA": "Aerospatiale/BAC Concorde",
     "F100": "Fokker 100", "F70": "Fokker 70",
     "F27": "Fokker 27 Friendship", "F28": "Fokker 28 Fellowship",
-    "D328": "Dornier 328",
-    "TRID": "Hawker Siddeley Trident",
-    "NIM": "Hawker Siddeley Nimrod",
-    "SGUP": "Airbus Super Guppy",
+    "D328": "Dornier 328", "TRID": "Hawker Siddeley Trident",
+    "NIM": "Hawker Siddeley Nimrod", "SGUP": "Airbus Super Guppy",
     "VT23": "Vought F4U Corsair",
 }
 
@@ -131,6 +130,7 @@ AIRLINE_NAMES = {
     "FFT": "Frontier Airlines", "SKW": "SkyWest Airlines",
     "UTY": "Alliance Airlines", "QLK": "QantasLink",
     "AFG": "Ariana Afghan Airlines", "IGO": "IndiGo",
+    "EXS": "Jet2",
 }
 
 # ─────────────────────────────────────────────────────────────
@@ -195,13 +195,11 @@ def fetch_most_tracked(fr24):
         log.warning(f"Could not fetch most tracked: {e}")
         return []
 
-
 # ─────────────────────────────────────────────────────────────
 # FILTERING
 # ─────────────────────────────────────────────────────────────
 
 def get_detection_reason(flight):
-    """Return the reason this flight matched, for color coding."""
     ftype   = (getattr(flight, "aircraft_code", "") or "").upper()
     reg     = (getattr(flight, "registration",  "") or "").upper()
     airline = (getattr(flight, "airline_icao",  "") or "").upper()
@@ -215,8 +213,6 @@ def get_detection_reason(flight):
         return "registration"
     if airline in [a.upper() for a in WATCHLIST_AIRLINES]:
         return "airline"
-    if ftype in [t.upper() for t in WATCHLIST_TYPES]:
-        return "type"
     return "type"
 
 
@@ -248,15 +244,12 @@ def matches_watchlist(flight):
         return True
     return False
 
-
 # ─────────────────────────────────────────────────────────────
 # HELPERS
 # ─────────────────────────────────────────────────────────────
 
-def safe(val):
-    if val is None or str(val).strip() in ("", "0", "None", "N/A"):
-        return "N/A"
-    return str(val)
+def fmt(v):
+    return str(v) if v not in [None, "", "None", "N/A"] else "N/A"
 
 
 def get_aircraft_name(icao):
@@ -270,20 +263,28 @@ def get_airline_name(icao):
 
 
 def get_planespotters_image(reg):
-    """Fetch first photo URL from Planespotters API."""
+    """Fetch first photo thumbnail URL from Planespotters API."""
     if not reg or reg == "N/A":
         return None
     try:
         url = f"https://api.planespotters.net/pub/photos/reg/{reg}"
         r = requests.get(url, timeout=8, headers={"User-Agent": "FR24Monitor/1.0"})
         if r.status_code == 200:
-            data = r.json()
-            photos = data.get("photos", [])
+            photos = r.json().get("photos", [])
             if photos:
-                return photos[0].get("thumbnail_large", {}).get("src") or photos[0].get("thumbnail", {}).get("src")
+                src = photos[0].get("thumbnail_large", {}).get("src")
+                return src or photos[0].get("thumbnail", {}).get("src")
     except Exception:
         pass
     return None
+
+
+def get_fr24_link(flight):
+    callsign  = getattr(flight, "callsign", "") or ""
+    flight_id = getattr(flight, "id",       "") or ""
+    if callsign:
+        return f"https://www.flightradar24.com/{callsign}/{flight_id}"
+    return f"https://www.flightradar24.com/{flight_id}"
 
 
 def get_jetphotos_link(reg):
@@ -299,16 +300,7 @@ def get_aviationphoto_link(reg):
     return f"https://www.aviationphotos.net/search/?reg={reg}"
 
 
-def get_fr24_link(flight):
-    callsign  = getattr(flight, "callsign", "") or ""
-    flight_id = getattr(flight, "id", "")       or ""
-    if callsign:
-        return f"https://www.flightradar24.com/{callsign}/{flight_id}"
-    return f"https://www.flightradar24.com/{flight_id}"
-
-
 def discord_timestamp(unix_ts):
-    """Return a Discord relative timestamp string."""
     try:
         ts = int(unix_ts)
         if ts > 0:
@@ -317,17 +309,16 @@ def discord_timestamp(unix_ts):
         pass
     return "N/A"
 
-
 # ─────────────────────────────────────────────────────────────
-# EMBED COLORS
+# EMBED COLORS + LABELS
 # ─────────────────────────────────────────────────────────────
 
 COLORS = {
-    "rare":         0xFF4500,  # Orange-red
-    "squawk":       0xFFD700,  # Gold
-    "registration": 0x00FF99,  # Mint green
-    "airline":      0x1E90FF,  # Dodger blue
-    "type":         0x7289DA,  # Discord blurple
+    "rare":         0xFF4500,
+    "squawk":       0xFFD700,
+    "registration": 0x00FF99,
+    "airline":      0x1E90FF,
+    "type":         0x7289DA,
 }
 
 REASON_LABELS = {
@@ -338,227 +329,106 @@ REASON_LABELS = {
     "type":         "✈️ WATCHED TYPE",
 }
 
+SQUAWK_MEANINGS = {
+    "7500": "Hijacking",
+    "7600": "Radio Failure",
+    "7700": "Emergency",
+}
+
 # ─────────────────────────────────────────────────────────────
 # DISCORD
 # ─────────────────────────────────────────────────────────────
-# ============================================================
-#                HELPER FUNCTIONS REQUIRED BY build_embed
-# ============================================================
-
-def get_aircraft_info(flight):
-    reg = flight.registration
-    if not reg:
-        return {}
-
-    try:
-        url = f"https://api.planespotters.net/pub/photos/reg/{reg}"
-        r = requests.get(url, timeout=5).json()
-
-        info = r.get("aircraft", [{}])[0]
-
-        return {
-            "full_name": info.get("type", "N/A"),
-            "msn": info.get("msn", "N/A"),
-            "age": info.get("age", "N/A"),
-            "country": info.get("country", "N/A"),
-            "category": info.get("category", "N/A")
-        }
-    except:
-        return {}
-
-
-def get_extended_details(flight):
-    try:
-        fr = FlightRadar24API()
-        details = fr.get_flight_details(flight.id)
-
-        return {
-            "source": details.get("source"),
-            "geo_altitude": details.get("geo_altitude"),
-            "tas": details.get("tas"),
-            "ias": details.get("ias"),
-            "mach": details.get("mach"),
-            "wind": details.get("wind"),
-            "temp": details.get("temp"),
-            "fir_uir": details.get("fir", "N/A")
-        }
-    except:
-        return {}
-
-
-def get_recent_flights(flight):
-    try:
-        fr = FlightRadar24API()
-        details = fr.get_flight_details(flight.id)
-
-        history = details.get("trail", [])
-        routes = []
-
-        for entry in history[:3]:
-            orig = entry.get("origin", "???")
-            dest = entry.get("destination", "???")
-            routes.append(f"{orig} → {dest}")
-
-        return routes
-    except:
-        return []
-
-
-def get_image_url(flight, aircraft_info):
-    reg = flight.registration
-    if not reg:
-        return None
-
-    try:
-        url = f"https://api.planespotters.net/pub/photos/reg/{reg}"
-        r = requests.get(url, timeout=5).json()
-
-        photos = r.get("photos", [])
-        if not photos:
-            return None
-
-        return photos[0].get("thumbnail_large")
-    except:
-        return None
-
-
-def get_viewer_count(flight):
-    try:
-        callsign = flight.callsign
-        if not callsign:
-            return "N/A"
-
-        url = f"https://www.flightradar24.com/{callsign}"
-        html = requests.get(url, timeout=5).text
-
-        marker = '"viewers":'
-        idx = html.find(marker)
-        if idx == -1:
-            return "N/A"
-
-        start = idx + len(marker)
-        end = html.find(",", start)
-        viewers = html[start:end].strip()
-
-        return viewers if viewers else "N/A"
-
-    except:
-        return "N/A"
 
 def build_embed(flight, reason):
-    # Helper to cleanly format values
-    def fmt(v):
-        return str(v) if v not in [None, "", "None"] else "N/A"
+    reg      = fmt(getattr(flight, "registration",           None))
+    ftype    = fmt(getattr(flight, "aircraft_code",          None))
+    callsign = fmt(getattr(flight, "callsign",               None))
+    airline  = fmt(getattr(flight, "airline_icao",           None))
+    origin   = fmt(getattr(flight, "origin_airport_iata",       None))
+    dest     = fmt(getattr(flight, "destination_airport_iata",  None))
+    squawk   = fmt(getattr(flight, "squawk",                 None))
+    ts       = getattr(flight, "time",           None)
+    alt      = getattr(flight, "altitude",       None)
+    spd      = getattr(flight, "ground_speed",   None)
+    vspd     = getattr(flight, "vertical_speed", None)
+    heading  = getattr(flight, "heading",        None)
+    lat      = getattr(flight, "latitude",       None)
+    lon      = getattr(flight, "longitude",      None)
+    icao24   = fmt(getattr(flight, "icao_24bit", None))
 
-    # --- Fetch aircraft metadata (Planespotters) ---
-    aircraft_info = get_aircraft_info(flight) or {}
+    aircraft_full = get_aircraft_name(ftype)
+    airline_full  = get_airline_name(airline)
 
-    # --- Fetch extended FR24 details ---
-    extended = get_extended_details(flight) or {}
+    try:
+        alt_str = f"{int(alt):,} ft" if alt and int(alt) > 0 else "N/A"
+    except Exception:
+        alt_str = "N/A"
+    try:
+        spd_str = f"{int(spd)} kts" if spd and int(spd) > 0 else "N/A"
+    except Exception:
+        spd_str = "N/A"
+    try:
+        vspd_str = f"{int(vspd):+,} fpm" if vspd is not None else "N/A"
+    except Exception:
+        vspd_str = "N/A"
+    try:
+        heading_str = f"{int(heading)}°" if heading is not None else "N/A"
+    except Exception:
+        heading_str = "N/A"
+    try:
+        pos_str = f"{float(lat):.4f}, {float(lon):.4f}" if lat and lon else "N/A"
+    except Exception:
+        pos_str = "N/A"
 
-    # --- Fetch recent flights ---
-    recent = get_recent_flights(flight) or []
+    fr24_link = get_fr24_link(flight)
+    jp_link   = get_jetphotos_link(reg)
+    ap_link   = get_aviationphoto_link(reg)
+    photo_url = get_planespotters_image(reg) if reg != "N/A" else None
+    ts_str    = discord_timestamp(ts) if ts else "N/A"
 
-    # --- Fetch image URL (your existing logic) ---
-    image_url = get_image_url(flight, aircraft_info)
+    color = COLORS.get(reason, 0x7289DA)
+    label = REASON_LABELS.get(reason, "✈️ WATCHED TYPE")
 
-    # --- Build embed base ---
+    links = []
+    if fr24_link:
+        links.append(f"[FR24 Live]({fr24_link})")
+    if jp_link:
+        links.append(f"[JetPhotos]({jp_link})")
+    if ap_link:
+        links.append(f"[AviationPhoto]({ap_link})")
+
+    description = None
+    if reason == "squawk":
+        meaning = SQUAWK_MEANINGS.get(squawk, "Emergency")
+        description = f"**Squawk {squawk} — {meaning}**"
+
     embed = {
-        "embeds": [
-            {
-                "title": f"{fmt(flight.callsign)} — {fmt(flight.aircraft_code)}",
-                "color": 0x1E90FF,
-                "fields": [],
-                "thumbnail": {"url": image_url} if image_url else None
-            }
-        ]
+        "title": f"{label} — {reg}",
+        "color": color,
+        "fields": [
+            {"name": "Aircraft",            "value": f"{aircraft_full}\n`{ftype}`",         "inline": True},
+            {"name": "Airline",             "value": f"{airline_full}\n`{airline}`",         "inline": True},
+            {"name": "Callsign",            "value": callsign,                               "inline": True},
+            {"name": "Route",               "value": f"{origin} → {dest}",                  "inline": True},
+            {"name": "Squawk",              "value": squawk,                                 "inline": True},
+            {"name": "Hex (ICAO 24-bit)",   "value": icao24,                                 "inline": True},
+            {"name": "Altitude",            "value": alt_str,                                "inline": True},
+            {"name": "Ground Speed",        "value": spd_str,                                "inline": True},
+            {"name": "Vertical Speed",      "value": vspd_str,                               "inline": True},
+            {"name": "Heading",             "value": heading_str,                            "inline": True},
+            {"name": "Position",            "value": pos_str,                                "inline": True},
+            {"name": "First Seen",          "value": ts_str,                                 "inline": True},
+            {"name": "Links",               "value": " · ".join(links) if links else "N/A", "inline": False},
+        ],
+        "footer": {"text": f"FR24 Monitor • Detected {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"},
     }
 
-    fields = embed["embeds"][0]["fields"]
-
-    # ============================================================
-    #                EXISTING TOP FIELDS
-    # ============================================================
-
-    fields.append({"name": "Aircraft", "value": fmt(flight.aircraft_code), "inline": True})
-    fields.append({"name": "Full Name", "value": fmt(aircraft_info.get("full_name")), "inline": True})
-    fields.append({"name": "Registration", "value": fmt(flight.registration), "inline": True})
-    fields.append({"name": "Airline", "value": fmt(flight.airline_icao), "inline": True})
-    fields.append({"name": "Callsign", "value": fmt(flight.callsign), "inline": True})
-    origin = getattr(flight, "origin_airport_iata", "") or "???"
-    dest = getattr(flight, "destination_airport_iata", "") or "???"
-    route_str = f"{origin} → {dest}"
-    fields.append({"name": "Route", "value": fmt(route_str), "inline": True})
-
-
-
-    # --- Performance ---
-    fields.append({"name": "Altitude", "value": fmt(flight.altitude), "inline": True})
-    fields.append({"name": "Ground Speed", "value": fmt(flight.ground_speed), "inline": True})
-    fields.append({"name": "Track", "value": fmt(flight.heading), "inline": True})
-
-    # --- Metadata ---
-    fields.append({"name": "Squawk", "value": fmt(flight.squawk), "inline": True})
-    fields.append({"name": "First Seen", "value": fmt(flight.time), "inline": True})
-
-    # ============================================================
-    #                NEW FIELDS INSERTED HERE
-    # ============================================================
-
-    # --- Aircraft Info ---
-    fields.append({"name": "Country", "value": fmt(aircraft_info.get("country")), "inline": True})
-    fields.append({"name": "MSN", "value": fmt(aircraft_info.get("msn")), "inline": True})
-    fields.append({"name": "Age", "value": fmt(aircraft_info.get("age")), "inline": True})
-    fields.append({"name": "Category", "value": fmt(aircraft_info.get("category")), "inline": True})
-    fields.append({"name": "Hex", "value": fmt(getattr(flight, "icao_24bit", None)), "inline": True})
-
-    # --- Flight Info ---
-    fields.append({"name": "Data Source", "value": fmt(extended.get("source")), "inline": True})
-    fields.append({
-        "name": "Recent Flights",
-        "value": fmt(", ".join(recent)) if recent else "N/A",
-        "inline": False
-    })
-    fields.append({"name": "FIR/UIR", "value": fmt(extended.get("fir_uir")), "inline": True})
-
-    # --- Performance (Extended) ---
-    perf_block = (
-        f"GPS Altitude: {fmt(extended.get('geo_altitude'))}\n"
-        f"Vertical Speed: {fmt(flight.vertical_speed)}\n"
-        f"True Airspeed: {fmt(extended.get('tas'))}\n"
-        f"Indicated Airspeed: {fmt(extended.get('ias'))}\n"
-        f"Mach: {fmt(extended.get('mach'))}\n"
-        f"Wind: {fmt(extended.get('wind'))}\n"
-        f"Temperature: {fmt(extended.get('temp'))}\n"
-        f"Latitude: {fmt(flight.latitude)}\n"
-        f"Longitude: {fmt(flight.longitude)}"
-    )
-
-    fields.append({
-        "name": "Performance & Position",
-        "value": perf_block,
-        "inline": False
-    })
-
-    # ============================================================
-    #                VIEWERS + LINKS
-    # ============================================================
-
-    viewer_count = get_viewer_count(flight)
-    fields.append({"name": "Viewers", "value": fmt(viewer_count), "inline": True})
-
-    links = (
-        f"[FR24 Live](https://www.flightradar24.com/{fmt(flight.callsign)}) · "
-        f"[JetPhotos](https://www.jetphotos.com/registration/{fmt(flight.registration)}) · "
-        f"[AviationPhoto](https://www.aviationphoto.com/search?q={fmt(flight.registration)})"
-    )
-
-    fields.append({"name": "Links", "value": links, "inline": False})
+    if description:
+        embed["description"] = description
+    if photo_url:
+        embed["image"] = {"url": photo_url}
 
     return embed
-
-
-
 
 
 def build_most_tracked_embed(most_tracked):
@@ -588,13 +458,12 @@ def build_most_tracked_embed(most_tracked):
 
 
 def send_discord(content=None, embed=None):
+    """Send a message to Discord. embed should be a plain dict (not wrapped)."""
     payload = {}
     if content:
         payload["content"] = content
     if embed:
-        payload["embeds"] = embed["embeds"]
-
-
+        payload["embeds"] = [embed]
     try:
         r = requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10)
         if r.status_code == 429:
@@ -616,40 +485,36 @@ def send_flight(flight, reason):
 
 
 def send_summary(total, rare_count, squawk_count, excluded_count):
-    now   = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    embed = {
-        "title": "📊 Hourly Scan Complete",
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    send_discord(embed={
+        "title": "📊 Scan Complete",
         "color": 0x2ECC71,
         "fields": [
-            {"name": "✈️ Flights Shown",   "value": str(total),          "inline": True},
-            {"name": "🚨 Rare Detected",   "value": str(rare_count),     "inline": True},
-            {"name": "⚠️ Squawk Alerts",   "value": str(squawk_count),   "inline": True},
-            {"name": "🚫 Filtered Out",    "value": str(excluded_count), "inline": True},
+            {"name": "✈️ Flights Shown",  "value": str(total),          "inline": True},
+            {"name": "🚨 Rare Detected",  "value": str(rare_count),     "inline": True},
+            {"name": "⚠️ Squawk Alerts",  "value": str(squawk_count),   "inline": True},
+            {"name": "🚫 Filtered Out",   "value": str(excluded_count), "inline": True},
         ],
         "footer": {"text": f"FR24 Monitor • {now}"},
-    }
-    send_discord(embed=embed)
+    })
 
 
 def send_fetch_error():
-    embed = {
+    send_discord(embed={
         "title": "❌ FR24 Fetch Failed",
         "description": "Could not reach FlightRadar24. The site may be down or your login details are wrong.",
         "color": 0xFF0000,
         "footer": {"text": f"FR24 Monitor • {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"},
-    }
-    send_discord(embed=embed)
+    })
 
 
 def send_zero_flights():
-    embed = {
+    send_discord(embed={
         "title": "👻 0 Flights Found",
-        "description": "Somehow nothing matched your filter this hour.\nConsolation prize: [JetPhotos Latest](https://www.jetphotos.com/latest-photos)",
+        "description": "Somehow nothing matched your filter this scan.\nConsolation prize: [JetPhotos Latest](https://www.jetphotos.com/latest-photos)",
         "color": 0x95A5A6,
         "footer": {"text": f"FR24 Monitor • {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"},
-    }
-    send_discord(embed=embed)
-
+    })
 
 # ─────────────────────────────────────────────────────────────
 # MAIN
@@ -664,17 +529,8 @@ def main():
         send_fetch_error()
         return
 
-    # ADD THIS HERE:
-    if all_flights:
-        flight = all_flights[0]
-        print("\n=== FLIGHT DATA DEBUG ===")
-        print(flight.__dict__)
-        print("=========================\n")
-
     matched        = []
     excluded_count = 0
-    
-    # ... rest of your code ...
 
     for flight in all_flights:
         if not matches_watchlist(flight):

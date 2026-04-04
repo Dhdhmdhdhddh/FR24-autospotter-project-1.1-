@@ -8,6 +8,7 @@ import os
 import time
 import logging
 import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from FlightRadar24 import FlightRadar24API
 
@@ -61,7 +62,6 @@ WATCHLIST_AIRLINES = ["IGY"]  # NASA
 SQUAWK_WATCH       = ["7500", "7600", "7700"]
 RARE_TYPES         = ["E4", "VC25", "WB57", "CONC", "BSCA"]
 
-# Add airlines here as you spot spammy ones
 EXCLUDED_AIRLINES = []
 
 EXCLUDED_COMBOS = [
@@ -117,8 +117,7 @@ AIRCRAFT_NAMES = {
     "F27": "Fokker 27 Friendship", "F28": "Fokker 28 Fellowship",
     "D328": "Dornier 328", "TRID": "Hawker Siddeley Trident",
     "NIM": "Hawker Siddeley Nimrod", "SGUP": "Airbus Super Guppy",
-    "VT23": "Vought F4U Corsair",
-    "KFIR": "IAI Kfir",
+    "VT23": "Vought F4U Corsair", "KFIR": "IAI Kfir",
 }
 
 AIRLINE_NAMES = {
@@ -162,7 +161,6 @@ def fetch_flights():
         seen_ids = set()
         all_flights = []
 
-        # Query by each aircraft type
         for ftype in WATCHLIST_TYPES:
             try:
                 flights = fr24.get_flights(aircraft_type=ftype)
@@ -180,7 +178,6 @@ def fetch_flights():
                 log.warning(f"Type {ftype} failed: {e}")
                 continue
 
-        # Query by each watched registration
         for reg in WATCHLIST_REGS:
             try:
                 flights = fr24.get_flights(registration=reg)
@@ -198,7 +195,6 @@ def fetch_flights():
                 log.warning(f"Reg {reg} failed: {e}")
                 continue
 
-        # Query by each watched airline
         for airline in WATCHLIST_AIRLINES:
             try:
                 flights = fr24.get_flights(airline=airline)
@@ -216,7 +212,7 @@ def fetch_flights():
                 log.warning(f"Airline {airline} failed: {e}")
                 continue
 
-        # Squawk scan — zone-based but only keeps emergency squawks
+        # Squawk scan — zone-based, only keeps emergency squawks
         log.info("Running squawk scan...")
         squawk_zones = fr24.get_zones()
         squawk_zone_list = get_all_zones(squawk_zones)
@@ -251,18 +247,17 @@ def fetch_flights():
 def fetch_most_tracked(fr24):
     try:
         result = fr24.get_most_tracked()
-
         if isinstance(result, dict):
             flights = result.get("flights", result.get("data", []))
         elif isinstance(result, list):
             flights = result
         else:
             flights = []
-
         return flights[:10] if flights else []
     except Exception as e:
         log.warning(f"Could not fetch most tracked: {e}")
         return []
+
 # ─────────────────────────────────────────────────────────────
 # FILTERING
 # ─────────────────────────────────────────────────────────────
@@ -336,7 +331,7 @@ def get_planespotters_image(reg):
         return None
     try:
         url = f"https://api.planespotters.net/pub/photos/reg/{reg}"
-        r = requests.get(url, timeout=8, headers={"User-Agent": "FR24Monitor/1.0"})
+        r = requests.get(url, timeout=5, headers={"User-Agent": "FR24Monitor/1.0"})
         if r.status_code == 200:
             photos = r.json().get("photos", [])
             if photos:
@@ -345,6 +340,29 @@ def get_planespotters_image(reg):
     except Exception:
         pass
     return None
+
+
+def prefetch_images(flights):
+    """Fetch all Planespotters images in parallel. Returns dict of reg -> image_url."""
+    regs = list({fmt(getattr(f, "registration", None)) for f in flights})
+    regs = [r for r in regs if r != "N/A"]
+
+    results = {}
+
+    def fetch_one(reg):
+        return reg, get_planespotters_image(reg)
+
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {executor.submit(fetch_one, reg): reg for reg in regs}
+        for future in as_completed(futures):
+            try:
+                reg, url = future.result()
+                results[reg] = url
+            except Exception:
+                pass
+
+    log.info(f"Prefetched images for {len(results)} registrations")
+    return results
 
 
 def get_fr24_link(flight):
@@ -407,7 +425,7 @@ SQUAWK_MEANINGS = {
 # DISCORD
 # ─────────────────────────────────────────────────────────────
 
-def build_embed(flight, reason):
+def build_embed(flight, reason, image_cache=None):
     reg      = fmt(getattr(flight, "registration",           None))
     ftype    = fmt(getattr(flight, "aircraft_code",          None))
     callsign = fmt(getattr(flight, "callsign",               None))
@@ -451,11 +469,15 @@ def build_embed(flight, reason):
     fr24_link = get_fr24_link(flight)
     jp_link   = get_jetphotos_link(reg)
     ap_link   = get_aviationphoto_link(reg)
-    photo_url = get_planespotters_image(reg) if reg != "N/A" else None
-    ts_str    = discord_timestamp(ts) if ts else "N/A"
 
-    color = COLORS.get(reason, 0x7289DA)
-    label = REASON_LABELS.get(reason, "✈️ WATCHED TYPE")
+    # Use prefetched image if available, otherwise skip
+    photo_url = None
+    if image_cache is not None:
+        photo_url = image_cache.get(reg)
+
+    ts_str = discord_timestamp(ts) if ts else "N/A"
+    color  = COLORS.get(reason, 0x7289DA)
+    label  = REASON_LABELS.get(reason, "✈️ WATCHED TYPE")
 
     links = []
     if fr24_link:
@@ -474,19 +496,19 @@ def build_embed(flight, reason):
         "title": f"{label} — {reg}",
         "color": color,
         "fields": [
-            {"name": "Aircraft",            "value": f"{aircraft_full}\n`{ftype}`",         "inline": True},
-            {"name": "Airline",             "value": f"{airline_full}\n`{airline}`",         "inline": True},
-            {"name": "Callsign",            "value": callsign,                               "inline": True},
-            {"name": "Route",               "value": f"{origin} → {dest}",                  "inline": True},
-            {"name": "Squawk",              "value": squawk,                                 "inline": True},
-            {"name": "Hex (ICAO 24-bit)",   "value": icao24,                                 "inline": True},
-            {"name": "Altitude",            "value": alt_str,                                "inline": True},
-            {"name": "Ground Speed",        "value": spd_str,                                "inline": True},
-            {"name": "Vertical Speed",      "value": vspd_str,                               "inline": True},
-            {"name": "Heading",             "value": heading_str,                            "inline": True},
-            {"name": "Position",            "value": pos_str,                                "inline": True},
-            {"name": "First Seen",          "value": ts_str,                                 "inline": True},
-            {"name": "Links",               "value": " · ".join(links) if links else "N/A", "inline": False},
+            {"name": "Aircraft",          "value": f"{aircraft_full}\n`{ftype}`",         "inline": True},
+            {"name": "Airline",           "value": f"{airline_full}\n`{airline}`",         "inline": True},
+            {"name": "Callsign",          "value": callsign,                               "inline": True},
+            {"name": "Route",             "value": f"{origin} → {dest}",                  "inline": True},
+            {"name": "Squawk",            "value": squawk,                                 "inline": True},
+            {"name": "Hex (ICAO 24-bit)", "value": icao24,                                 "inline": True},
+            {"name": "Altitude",          "value": alt_str,                                "inline": True},
+            {"name": "Ground Speed",      "value": spd_str,                                "inline": True},
+            {"name": "Vertical Speed",    "value": vspd_str,                               "inline": True},
+            {"name": "Heading",           "value": heading_str,                            "inline": True},
+            {"name": "Position",          "value": pos_str,                                "inline": True},
+            {"name": "First Seen",        "value": ts_str,                                 "inline": True},
+            {"name": "Links",             "value": " · ".join(links) if links else "N/A", "inline": False},
         ],
         "footer": {"text": f"FR24 Monitor • Detected {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"},
     }
@@ -500,18 +522,15 @@ def build_embed(flight, reason):
 
 
 def build_most_tracked_embed(most_tracked):
-def build_most_tracked_embed(most_tracked):
     if not most_tracked:
         return None
 
     lines = []
     for i, flight in enumerate(most_tracked, 1):
         try:
-            # flight is a dict, not an object
             callsign = flight.get("callsign", "N/A")
-            ftype    = flight.get("model", "N/A")   # ICAO type (e.g., B77W, A388)
-            count    = flight.get("clicks", "?")    # tracker count
-
+            ftype    = flight.get("model", "N/A")
+            count    = flight.get("clicks", "?")
             lines.append(f"`{i}.` {callsign} — {ftype} — {count} trackers")
         except Exception:
             lines.append(f"`{i}.` Data unavailable")
@@ -520,14 +539,11 @@ def build_most_tracked_embed(most_tracked):
         "title": "📡 Top 10 Most Tracked Right Now",
         "description": "\n".join(lines),
         "color": 0x9B59B6,
-        "footer": {
-            "text": f"FR24 Monitor • {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"
-        },
+        "footer": {"text": f"FR24 Monitor • {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"},
     }
 
 
 def send_discord(content=None, embed=None):
-    """Send a message to Discord. embed should be a plain dict (not wrapped)."""
     payload = {}
     if content:
         payload["content"] = content
@@ -546,8 +562,8 @@ def send_discord(content=None, embed=None):
         log.error(f"Discord send failed: {e}")
 
 
-def send_flight(flight, reason):
-    embed   = build_embed(flight, reason)
+def send_flight(flight, reason, image_cache=None):
+    embed   = build_embed(flight, reason, image_cache=image_cache)
     content = "@everyone 🚨 Rare aircraft detected!" if reason == "rare" else None
     send_discord(content=content, embed=embed)
     time.sleep(DISCORD_MESSAGE_DELAY)
@@ -614,6 +630,10 @@ def main():
     if not matched:
         send_zero_flights()
     else:
+        # Prefetch all images in parallel before sending any embeds
+        log.info("Prefetching images...")
+        image_cache = prefetch_images(matched)
+
         rare_count   = 0
         squawk_count = 0
 
@@ -623,7 +643,7 @@ def main():
                 rare_count += 1
             if reason == "squawk":
                 squawk_count += 1
-            send_flight(flight, reason)
+            send_flight(flight, reason, image_cache=image_cache)
 
         send_summary(
             total=len(matched),

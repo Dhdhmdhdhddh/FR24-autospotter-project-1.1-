@@ -469,7 +469,7 @@ def build_embed(flight, reason):
                 "title": f"{fmt(flight.callsign)} — {fmt(flight.aircraft_code)}",
                 "color": 0x1E90FF,
                 "fields": [],
-                "thumbnail": {"url": image_url} if image_url else {}
+                "thumbnail": {"url": image_url} if image_url else None
             }
         ]
     }
@@ -591,8 +591,9 @@ def send_discord(content=None, embed=None):
     payload = {}
     if content:
         payload["content"] = content
-    if embed:
-        payload["embeds"] = ["embed"]
+if embed:
+    payload["embeds"] = embed["embeds"]
+
     try:
         r = requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10)
         if r.status_code == 429:

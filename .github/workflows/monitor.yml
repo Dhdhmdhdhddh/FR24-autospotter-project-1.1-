@@ -12,7 +12,7 @@ concurrency:
 jobs:
   run-monitor:
     runs-on: ubuntu-latest
-    timeout-minutes: 3   # prevents stuck runs from blocking future runs
+    timeout-minutes: 10   # prevents stuck runs from blocking future runs
 
     steps:
       - name: Checkout repo

@@ -1,0 +1,15 @@
+name: FR24 Monitor Stagger
+
+on:
+  schedule:
+    - cron: "4/8 * * * *"   # runs every 8 minutes, offset by 4 minutes
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Trigger main FR24 Monitor workflow
+        run: gh workflow run "FR24 Monitor"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

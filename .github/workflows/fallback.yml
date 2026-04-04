@@ -2,7 +2,7 @@ name: FR24 Fallback Trigger
 
 on:
   schedule:
-    - cron: "*/15 * * * *"   # every 15 minutes
+    - cron: "*/15 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -21,22 +21,30 @@ jobs:
     steps:
       - name: Check last FR24 Monitor run time
         id: check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           last_run=$(curl -s \
-            https://api.github.com/repos/${{ github.repository }}/actions/workflows/monitor.yml/runs \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/monitor.yml/runs?per_page=1" \
             | jq -r '.workflow_runs[0].run_started_at')
 
           echo "Last run: $last_run"
 
-          last_ts=$(date -d "$last_run" +%s)
+          last_ts=$(date -d "$last_run" +%s 2>/dev/null || echo 0)
           now_ts=$(date +%s)
           diff=$(( now_ts - last_ts ))
 
           echo "Seconds since last run: $diff"
           echo "diff=$diff" >> $GITHUB_OUTPUT
 
-      - name: Trigger FR24 Monitor (fallback)
-        if: ${{ steps.check.outputs.diff > 900 }}
+      - name: Trigger FR24 Monitor if overdue
+        if: ${{ fromJson(steps.check.outputs.diff) > 900 }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh workflow run "FR24 Monitor"
+        run: |
+          gh workflow run "FR24 Monitor" --repo ${{ github.repository }}
+          curl -H "Content-Type: application/json" \
+            -d "{\"content\": \"⚠️ GitHub skipped a scheduled FR24 run — fallback triggered at $(date -u).\"}" \
+            "${{ secrets.DISCORD_WEBHOOK_URL }}"

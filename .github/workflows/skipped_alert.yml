@@ -1,0 +1,19 @@
+name: FR24 Skipped-Run Alert
+
+on:
+  workflow_run:
+    workflows: ["FR24 Fallback Trigger"]
+    types:
+      - completed
+
+jobs:
+  alert:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Send Discord alert
+        run: |
+          curl -H "Content-Type: application/json" \
+          -d "{\"content\": \"⚠️ GitHub skipped a scheduled FR24 run — fallback triggered at $(date -u).\"}" \
+          ${{ secrets.DISCORD_WEBHOOK_URL }}

@@ -60,12 +60,7 @@ WATCHLIST_AIRLINES = ["IGY"]  # NASA
 SQUAWK_WATCH = ["7500", "7600", "7700"]
 RARE_TYPES = ["E4", "VC25", "WB57", "CONC", "BSCA"]
 
-EXCLUDED_AIRLINES = [
-    "AVJ", "HYH", "SHY", "UTA", "AFG", "FJO", "SWT", "DHK", "DHL",
-    "EXC", "SJY", "LBZ", "RBW", "ANU", "MJT", "SNK", "ARY", "TGN",
-    "XPR", "EID", "CGD", "AZG", "KMF", "EAF", "PCE", "CLY", "AAH",
-    "EXS",  # Jet2
-]
+EXCLUDED_AIRLINES = []
 
 EXCLUDED_COMBOS = [
     {"type": "F100", "airline": "UTY"},  # Alliance Airlines

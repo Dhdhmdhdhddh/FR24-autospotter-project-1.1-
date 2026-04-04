@@ -592,7 +592,7 @@ def send_discord(content=None, embed=None):
     if content:
         payload["content"] = content
     if embed:
-        payload["embeds"] = [embed]
+        payload["embeds"] = ["embed"]
     try:
         r = requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10)
         if r.status_code == 429:

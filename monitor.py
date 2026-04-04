@@ -342,74 +342,86 @@ REASON_LABELS = {
 # DISCORD
 # ─────────────────────────────────────────────────────────────
 
-def build_embed(flight, reason):
-    reg      = safe(getattr(flight, "registration",          None))
-    ftype    = safe(getattr(flight, "aircraft_code",         None))
-    callsign = safe(getattr(flight, "callsign",              None))
-    airline  = safe(getattr(flight, "airline_icao",          None))
-    origin   = safe(getattr(flight, "origin_airport_iata",      None))
-    dest     = safe(getattr(flight, "destination_airport_iata", None))
-    alt      = getattr(flight, "altitude",     None)
-    spd      = getattr(flight, "ground_speed", None)
-    squawk   = safe(getattr(flight, "squawk",  None))
-    ts       = getattr(flight, "time", None)
-
-    aircraft_full = get_aircraft_name(ftype)
-    airline_full  = get_airline_name(airline)
-
-    try:
-        alt_str = f"{int(alt):,} ft" if alt and int(alt) > 0 else "N/A"
-    except Exception:
-        alt_str = "N/A"
-
-    try:
-        spd_str = f"{int(spd)} kts" if spd and int(spd) > 0 else "N/A"
-    except Exception:
-        spd_str = "N/A"
-
-    fr24_link = get_fr24_link(flight)
-    jp_link   = get_jetphotos_link(reg)
-    ap_link   = get_aviationphoto_link(reg)
-    photo_url = get_planespotters_image(reg) if reg != "N/A" else None
-    ts_str    = discord_timestamp(ts) if ts else "N/A"
-
-    color  = COLORS.get(reason, 0x7289DA)
-    label  = REASON_LABELS.get(reason, "✈️ WATCHED TYPE")
-
-    links = []
-    if fr24_link:
-        links.append(f"[FR24 Live]({fr24_link})")
-    if jp_link:
-        links.append(f"[JetPhotos]({jp_link})")
-    if ap_link:
-        links.append(f"[AviationPhoto]({ap_link})")
+def build_embed(flight, aircraft_info, extended, recent, image_url):
+    # Helper to cleanly format values
+    def fmt(v):
+        return str(v) if v not in [None, "", "None"] else "N/A"
 
     embed = {
-        "title": f"{label} — {reg}",
-        "color": color,
-        "fields": [
-            {"name": "Aircraft",    "value": f"{aircraft_full}\n`{ftype}`",          "inline": True},
-            {"name": "Airline",     "value": f"{airline_full}\n`{airline}`",          "inline": True},
-            {"name": "Callsign",    "value": callsign,                                "inline": True},
-            {"name": "Route",       "value": f"{origin} → {dest}",                   "inline": True},
-            {"name": "Altitude",    "value": alt_str,                                 "inline": True},
-            {"name": "Speed",       "value": spd_str,                                 "inline": True},
-            {"name": "Squawk",      "value": squawk,                                  "inline": True},
-            {"name": "First Seen",  "value": ts_str,                                  "inline": True},
-            {"name": "Links",       "value": " · ".join(links) if links else "N/A",  "inline": False},
-        ],
-        "footer": {"text": f"FR24 Monitor • Detected {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"},
+        "embeds": [
+            {
+                "title": f"{fmt(flight.callsign)} — {fmt(flight.aircraft_code)}",
+                "color": 0x1E90FF,
+                "fields": [],
+                "thumbnail": {"url": image_url} if image_url else {}
+            }
+        ]
     }
 
-    if photo_url:
-        embed["image"] = {"url": photo_url}
+    fields = embed["embeds"][0]["fields"]
 
-    if reason == "squawk":
-        squawk_meanings = {"7500": "Hijacking", "7600": "Radio Failure", "7700": "Emergency"}
-        meaning = squawk_meanings.get(squawk, "Emergency")
-        embed["description"] = f"**Squawk {squawk} — {meaning}**"
+    # --- EXISTING TOP FIELDS ---
+    fields.append({"name": "Aircraft", "value": fmt(flight.aircraft_code), "inline": True})
+    fields.append({"name": "Full Name", "value": fmt(aircraft_info.get("full_name")), "inline": True})
+    fields.append({"name": "Registration", "value": fmt(flight.registration), "inline": True})
+    fields.append({"name": "Airline", "value": fmt(flight.airline_icao), "inline": True})
+    fields.append({"name": "Callsign", "value": fmt(flight.callsign), "inline": True})
+    fields.append({"name": "Route", "value": fmt(flight.route), "inline": True})
+
+    # --- EXISTING PERFORMANCE FIELDS ---
+    fields.append({"name": "Altitude", "value": fmt(flight.altitude), "inline": True})
+    fields.append({"name": "Ground Speed", "value": fmt(flight.ground_speed), "inline": True})
+    fields.append({"name": "Track", "value": fmt(flight.heading), "inline": True})
+
+    # --- EXISTING METADATA ---
+    fields.append({"name": "Squawk", "value": fmt(flight.squawk), "inline": True})
+    fields.append({"name": "First Seen", "value": fmt(flight.time), "inline": True})
+
+    # ============================================================
+    #                NEW FIELDS INSERTED HERE
+    # ============================================================
+
+    # --- Aircraft Info ---
+    fields.append({"name": "Country", "value": fmt(aircraft_info.get("country")), "inline": True})
+    fields.append({"name": "MSN", "value": fmt(aircraft_info.get("msn")), "inline": True})
+    fields.append({"name": "Age", "value": fmt(aircraft_info.get("age")), "inline": True})
+    fields.append({"name": "Category", "value": fmt(aircraft_info.get("category")), "inline": True})
+    fields.append({"name": "Hex", "value": fmt(flight.hex), "inline": True})
+
+    # --- Flight Info ---
+    fields.append({"name": "Data Source", "value": fmt(extended.get("source")), "inline": True})
+    fields.append({"name": "Recent Flights", "value": fmt(", ".join(recent)) if recent else "N/A", "inline": False})
+    fields.append({"name": "FIR/UIR", "value": fmt(extended.get("fir_uir")), "inline": True})
+
+    # --- Performance ---
+    fields.append({"name": "GPS Altitude", "value": fmt(extended.get("geo_altitude")), "inline": True})
+    fields.append({"name": "Vertical Speed", "value": fmt(flight.vertical_speed), "inline": True})
+    fields.append({"name": "True Airspeed", "value": fmt(extended.get("tas")), "inline": True})
+    fields.append({"name": "Indicated Airspeed", "value": fmt(extended.get("ias")), "inline": True})
+    fields.append({"name": "Mach", "value": fmt(extended.get("mach")), "inline": True})
+    fields.append({"name": "Wind", "value": fmt(extended.get("wind")), "inline": True})
+    fields.append({"name": "Temperature", "value": fmt(extended.get("temp")), "inline": True})
+
+    # --- Position ---
+    fields.append({"name": "Latitude", "value": fmt(flight.latitude), "inline": True})
+    fields.append({"name": "Longitude", "value": fmt(flight.longitude), "inline": True})
+
+    # ============================================================
+    #                LINKS (BEFORE IMAGE)
+    # ============================================================
+
+    links = (
+        f"[FR24 Live](https://www.flightradar24.com/{fmt(flight.callsign)}) · "
+        f"[JetPhotos](https://www.jetphotos.com/registration/{fmt(flight.registration)}) · "
+        f"[AviationPhoto](https://www.aviationphoto.com/search?q={fmt(flight.registration)})"
+    )
+
+    fields.append({"name": "Links", "value": links, "inline": False})
+
+    # Thumbnail already set at top
 
     return embed
+
 
 
 def build_most_tracked_embed(most_tracked):

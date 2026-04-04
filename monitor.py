@@ -342,11 +342,24 @@ REASON_LABELS = {
 # DISCORD
 # ─────────────────────────────────────────────────────────────
 
-def build_embed(flight, aircraft_info, extended, recent, image_url):
+def build_embed(flight, reason):
     # Helper to cleanly format values
     def fmt(v):
         return str(v) if v not in [None, "", "None"] else "N/A"
 
+    # --- Fetch aircraft metadata (Planespotters) ---
+    aircraft_info = get_aircraft_info(flight) or {}
+
+    # --- Fetch extended FR24 details ---
+    extended = get_extended_details(flight) or {}
+
+    # --- Fetch recent flights ---
+    recent = get_recent_flights(flight) or []
+
+    # --- Fetch image URL (your existing logic) ---
+    image_url = get_image_url(flight, aircraft_info)
+
+    # --- Build embed base ---
     embed = {
         "embeds": [
             {
@@ -360,7 +373,10 @@ def build_embed(flight, aircraft_info, extended, recent, image_url):
 
     fields = embed["embeds"][0]["fields"]
 
-    # --- EXISTING TOP FIELDS ---
+    # ============================================================
+    #                EXISTING TOP FIELDS
+    # ============================================================
+
     fields.append({"name": "Aircraft", "value": fmt(flight.aircraft_code), "inline": True})
     fields.append({"name": "Full Name", "value": fmt(aircraft_info.get("full_name")), "inline": True})
     fields.append({"name": "Registration", "value": fmt(flight.registration), "inline": True})
@@ -368,12 +384,12 @@ def build_embed(flight, aircraft_info, extended, recent, image_url):
     fields.append({"name": "Callsign", "value": fmt(flight.callsign), "inline": True})
     fields.append({"name": "Route", "value": fmt(flight.route), "inline": True})
 
-    # --- EXISTING PERFORMANCE FIELDS ---
+    # --- Performance ---
     fields.append({"name": "Altitude", "value": fmt(flight.altitude), "inline": True})
     fields.append({"name": "Ground Speed", "value": fmt(flight.ground_speed), "inline": True})
     fields.append({"name": "Track", "value": fmt(flight.heading), "inline": True})
 
-    # --- EXISTING METADATA ---
+    # --- Metadata ---
     fields.append({"name": "Squawk", "value": fmt(flight.squawk), "inline": True})
     fields.append({"name": "First Seen", "value": fmt(flight.time), "inline": True})
 
@@ -386,14 +402,18 @@ def build_embed(flight, aircraft_info, extended, recent, image_url):
     fields.append({"name": "MSN", "value": fmt(aircraft_info.get("msn")), "inline": True})
     fields.append({"name": "Age", "value": fmt(aircraft_info.get("age")), "inline": True})
     fields.append({"name": "Category", "value": fmt(aircraft_info.get("category")), "inline": True})
-    fields.append({"name": "Hex", "value": fmt(flight.hex), "inline": True})
+    fields.append({"name": "Hex", "value": fmt(getattr(flight, "icao_24bit", None)), "inline": True})
 
     # --- Flight Info ---
     fields.append({"name": "Data Source", "value": fmt(extended.get("source")), "inline": True})
-    fields.append({"name": "Recent Flights", "value": fmt(", ".join(recent)) if recent else "N/A", "inline": False})
+    fields.append({
+        "name": "Recent Flights",
+        "value": fmt(", ".join(recent)) if recent else "N/A",
+        "inline": False
+    })
     fields.append({"name": "FIR/UIR", "value": fmt(extended.get("fir_uir")), "inline": True})
 
-    # --- Performance ---
+    # --- Performance (Extended) ---
     fields.append({"name": "GPS Altitude", "value": fmt(extended.get("geo_altitude")), "inline": True})
     fields.append({"name": "Vertical Speed", "value": fmt(flight.vertical_speed), "inline": True})
     fields.append({"name": "True Airspeed", "value": fmt(extended.get("tas")), "inline": True})
@@ -418,9 +438,8 @@ def build_embed(flight, aircraft_info, extended, recent, image_url):
 
     fields.append({"name": "Links", "value": links, "inline": False})
 
-    # Thumbnail already set at top
-
     return embed
+
 
 
 

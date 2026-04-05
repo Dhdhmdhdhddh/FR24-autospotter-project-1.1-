@@ -1,10 +1,11 @@
 """
-FR24 Rare Plane Monitor
-Uses the FlightRadar24 Python library to fetch live flights.
-Sends Discord embeds hourly via GitHub Actions.
+FR24 Rare Plane Monitor — Main Scanner
+Queries by type/reg/airline, routes to main or filtered webhook.
+Saves seen flight IDs and daily log for dedup and summary.
 """
 
 import os
+import json
 import time
 import logging
 import requests
@@ -19,15 +20,18 @@ log = logging.getLogger(__name__)
 # CONFIG
 # ─────────────────────────────────────────────────────────────
 
-FR24_USERNAME        = os.environ.get("FR24_USERNAME", "")
-FR24_PASSWORD        = os.environ.get("FR24_PASSWORD", "")
-DISCORD_WEBHOOK_URL  = os.environ.get("DISCORD_WEBHOOK_URL", "")
-DISCORD_MESSAGE_DELAY = 1.5
+FR24_USERNAME             = os.environ.get("FR24_USERNAME", "")
+FR24_PASSWORD             = os.environ.get("FR24_PASSWORD", "")
+DISCORD_WEBHOOK_URL       = os.environ.get("DISCORD_WEBHOOK_URL", "")       # main
+DISCORD_WEBHOOK_FILTERED  = os.environ.get("DISCORD_WEBHOOK_FILTERED", "")  # filtered airlines
+DISCORD_MESSAGE_DELAY     = 1.5
+
+SEEN_IDS_FILE  = "seen_ids.json"
+DAILY_LOG_FILE = "daily_log.json"
 
 # ── Aircraft type watchlist ───────────────────────────────────
 WATCHLIST_TYPES = [
-    "L188", "ZZZZ", "B2",
-    "B52",
+    "L188", "ZZZZ", "B2", "B52",
     "A124", "A148", "A310", "A3ST",
     "AN12", "AN22", "AN26", "AN30", "AN32", "AN72", "AN74",
     "B779", "B74S", "B742", "B741", "B732", "B722", "B703", "B720",
@@ -39,22 +43,16 @@ WATCHLIST_TYPES = [
     "IL62", "IL76", "IL18",
     "L101", "L410",
     "MD10", "MD11", "MD81", "MD82", "MD83", "MD87", "MD88", "MD90",
-    "NIM",
-    "P3",
-    "SGUP",
+    "NIM", "P3", "SGUP",
     "YK50", "YK42", "YK40",
     "VT23", "WHK2", "VC10",
     "V22", "U2",
     "TRID", "T45", "T204", "T2", "T154", "T134",
-    "SLCH", "SHIP",
-    "733",
+    "SLCH", "SHIP", "733",
     "BTB2", "RFAL", "CORS",
-    "E6", "E3", "E4", "E8",
-    "VC25",
+    "E6", "E3", "E4", "E8", "VC25",
     "F27", "F28", "F100", "F70",
-    "D328",
-    "WB57",
-    "KFIR",
+    "D328", "WB57", "KFIR",
 ]
 
 WATCHLIST_REGS     = ["N990XB"]
@@ -62,7 +60,36 @@ WATCHLIST_AIRLINES = ["IGY"]  # NASA
 SQUAWK_WATCH       = ["7500", "7600", "7700"]
 RARE_TYPES         = ["E4", "VC25", "WB57", "CONC", "BSCA"]
 
-EXCLUDED_AIRLINES = []
+# Routes to FILTERED webhook instead of being dropped
+FILTERED_AIRLINES = [
+    "AVJ",  # Avia Traffic Company
+    "HYH",  # Hayways
+    "SHY",  # Shirak Avia
+    "UTA",  # UTair
+    "AFG",  # Ariana Afghan Airlines
+    "FJO",  # Fly Jordan
+    "SWT",  # Swiftair
+    "DHK",  # DHL Air
+    "DHL",  # DHL
+    "EXC",  # Express Cargo Airlines
+    "SJY",  # Sriwijaya Air
+    "LBZ",  # Nam Air
+    "RBW",  # Rimbun Air
+    "ANU",  # Aero Nusantara Cargo
+    "MJT",  # MJets
+    "SNK",  # Sin-Kung Airways
+    "ARY",  # Airnesia Royal Cargo
+    "TGN",  # Trigana Air
+    "XPR",  # Xpress Air
+    "EID",  # Eastindo
+    "CGD",  # Cardig Air
+    "AZG",  # Silk Way Airlines
+    "KMF",  # Kam Air
+    "EAF",  # East African
+    "PCE",  # Peace Air
+    "CLY",  # Cally Air
+    "AAH",  # Aloha Air Cargo
+]
 
 EXCLUDED_COMBOS = [
     {"type": "F100", "airline": "UTY"},  # Alliance Airlines
@@ -128,11 +155,63 @@ AIRLINE_NAMES = {
     "ETH": "Ethiopian Airlines", "MSR": "EgyptAir", "THY": "Turkish Airlines",
     "FDX": "FedEx Express", "UPS": "UPS Airlines", "WGN": "Western Global Airlines",
     "HAL": "Hawaiian Airlines", "ASA": "Alaska Airlines",
-    "FFT": "Frontier Airlines", "SKW": "SkyWest Airlines",
     "UTY": "Alliance Airlines", "QLK": "QantasLink",
-    "AFG": "Ariana Afghan Airlines", "IGO": "IndiGo",
     "EXS": "Jet2",
+    "AVJ": "Avia Traffic Company", "UTA": "UTair", "AFG": "Ariana Afghan Airlines",
+    "SJY": "Sriwijaya Air", "TGN": "Trigana Air", "AZG": "Silk Way Airlines",
+    "KMF": "Kam Air", "SWT": "Swiftair", "DHL": "DHL",
 }
+
+# ─────────────────────────────────────────────────────────────
+# PERSISTENT STORAGE
+# ─────────────────────────────────────────────────────────────
+
+def load_seen_ids():
+    try:
+        with open(SEEN_IDS_FILE, "r") as f:
+            data = json.load(f)
+            return set(data.get("ids", []))
+    except Exception:
+        return set()
+
+
+def save_seen_ids(ids):
+    try:
+        with open(SEEN_IDS_FILE, "w") as f:
+            json.dump({"ids": list(ids), "updated": datetime.now(timezone.utc).isoformat()}, f)
+    except Exception as e:
+        log.warning(f"Could not save seen IDs: {e}")
+
+
+def load_daily_log():
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    try:
+        with open(DAILY_LOG_FILE, "r") as f:
+            data = json.load(f)
+            if data.get("date") == today:
+                return data
+    except Exception:
+        pass
+    return {"date": today, "total": 0, "rare": 0, "squawk": 0, "filtered": 0, "types": {}}
+
+
+def save_daily_log(log_data):
+    try:
+        with open(DAILY_LOG_FILE, "w") as f:
+            json.dump(log_data, f)
+    except Exception as e:
+        log.warning(f"Could not save daily log: {e}")
+
+
+def update_daily_log(log_data, matched, filtered, rare_count, squawk_count):
+    log_data["total"]    += len(matched)
+    log_data["rare"]     += rare_count
+    log_data["squawk"]   += squawk_count
+    log_data["filtered"] += len(filtered)
+    for flight in matched:
+        ftype = (getattr(flight, "aircraft_code", "") or "N/A").upper()
+        log_data["types"][ftype] = log_data["types"].get(ftype, 0) + 1
+    return log_data
 
 # ─────────────────────────────────────────────────────────────
 # FR24 FETCHING
@@ -155,7 +234,6 @@ def get_all_zones(zones, parent_name=""):
 
 
 def fetch_flights():
-    """Query FR24 once per watchlist type — guarantees global coverage with no zone caps."""
     try:
         fr24 = FlightRadar24API(FR24_USERNAME, FR24_PASSWORD)
         seen_ids = set()
@@ -176,7 +254,6 @@ def fetch_flights():
                 time.sleep(0.3)
             except Exception as e:
                 log.warning(f"Type {ftype} failed: {e}")
-                continue
 
         for reg in WATCHLIST_REGS:
             try:
@@ -193,7 +270,6 @@ def fetch_flights():
                 time.sleep(0.3)
             except Exception as e:
                 log.warning(f"Reg {reg} failed: {e}")
-                continue
 
         for airline in WATCHLIST_AIRLINES:
             try:
@@ -210,53 +286,12 @@ def fetch_flights():
                 time.sleep(0.3)
             except Exception as e:
                 log.warning(f"Airline {airline} failed: {e}")
-                continue
-
-        # Squawk scan — zone-based, only keeps emergency squawks
-        log.info("Running squawk scan...")
-        squawk_zones = fr24.get_zones()
-        squawk_zone_list = get_all_zones(squawk_zones)
-        for zone_name, bounds in squawk_zone_list:
-            try:
-                bounds_str = f"{bounds['tl_y']},{bounds['br_y']},{bounds['tl_x']},{bounds['br_x']}"
-                flights = fr24.get_flights(bounds=bounds_str)
-                new = 0
-                for f in flights:
-                    squawk = (getattr(f, "squawk", "") or "")
-                    if squawk not in SQUAWK_WATCH:
-                        continue
-                    fid = getattr(f, "id", None)
-                    if fid and fid not in seen_ids:
-                        seen_ids.add(fid)
-                        all_flights.append(f)
-                        new += 1
-                if new:
-                    log.info(f"Squawk zone {zone_name}: {new} emergency flights found")
-                time.sleep(0.3)
-            except Exception as e:
-                log.warning(f"Squawk zone {zone_name} failed: {e}")
-                continue
 
         log.info(f"Fetched {len(all_flights)} total unique flights")
         return fr24, all_flights
     except Exception as e:
         log.error(f"Failed to fetch FR24 data: {e}")
         return None, None
-
-
-def fetch_most_tracked(fr24):
-    try:
-        result = fr24.get_most_tracked()
-        if isinstance(result, dict):
-            flights = result.get("flights", result.get("data", []))
-        elif isinstance(result, list):
-            flights = result
-        else:
-            flights = []
-        return flights[:10] if flights else []
-    except Exception as e:
-        log.warning(f"Could not fetch most tracked: {e}")
-        return []
 
 # ─────────────────────────────────────────────────────────────
 # FILTERING
@@ -279,12 +314,16 @@ def get_detection_reason(flight):
     return "type"
 
 
+def is_filtered(flight):
+    """Returns True if flight should go to filtered webhook instead of main."""
+    airline = (getattr(flight, "airline_icao", "") or "").upper()
+    return airline in [a.upper() for a in FILTERED_AIRLINES]
+
+
 def is_excluded(flight):
+    """Returns True if flight should be dropped entirely."""
     ftype   = (getattr(flight, "aircraft_code", "") or "").upper()
     airline = (getattr(flight, "airline_icao",  "") or "").upper()
-
-    if airline in [a.upper() for a in EXCLUDED_AIRLINES]:
-        return True
     for combo in EXCLUDED_COMBOS:
         if ftype == combo["type"].upper() and airline == combo["airline"].upper():
             return True
@@ -326,7 +365,6 @@ def get_airline_name(icao):
 
 
 def get_planespotters_image(reg):
-    """Fetch first photo thumbnail URL from Planespotters API."""
     if not reg or reg == "N/A":
         return None
     try:
@@ -343,10 +381,8 @@ def get_planespotters_image(reg):
 
 
 def prefetch_images(flights):
-    """Fetch all Planespotters images in parallel. Returns dict of reg -> image_url."""
     regs = list({fmt(getattr(f, "registration", None)) for f in flights})
     regs = [r for r in regs if r != "N/A"]
-
     results = {}
 
     def fetch_one(reg):
@@ -405,6 +441,7 @@ COLORS = {
     "registration": 0x00FF99,
     "airline":      0x1E90FF,
     "type":         0x7289DA,
+    "filtered":     0x99AAB5,
 }
 
 REASON_LABELS = {
@@ -413,6 +450,7 @@ REASON_LABELS = {
     "registration": "📋 WATCHED REGISTRATION",
     "airline":      "🏢 WATCHED AIRLINE",
     "type":         "✈️ WATCHED TYPE",
+    "filtered":     "📁 FILTERED AIRLINE",
 }
 
 SQUAWK_MEANINGS = {
@@ -425,7 +463,7 @@ SQUAWK_MEANINGS = {
 # DISCORD
 # ─────────────────────────────────────────────────────────────
 
-def build_embed(flight, reason, image_cache=None):
+def build_embed(flight, reason, image_cache=None, is_new=True):
     reg      = fmt(getattr(flight, "registration",           None))
     ftype    = fmt(getattr(flight, "aircraft_code",          None))
     callsign = fmt(getattr(flight, "callsign",               None))
@@ -469,15 +507,12 @@ def build_embed(flight, reason, image_cache=None):
     fr24_link = get_fr24_link(flight)
     jp_link   = get_jetphotos_link(reg)
     ap_link   = get_aviationphoto_link(reg)
+    photo_url = image_cache.get(reg) if image_cache else None
+    ts_str    = discord_timestamp(ts) if ts else "N/A"
+    status    = "🆕 New" if is_new else "🔄 Still Airborne"
 
-    # Use prefetched image if available, otherwise skip
-    photo_url = None
-    if image_cache is not None:
-        photo_url = image_cache.get(reg)
-
-    ts_str = discord_timestamp(ts) if ts else "N/A"
-    color  = COLORS.get(reason, 0x7289DA)
-    label  = REASON_LABELS.get(reason, "✈️ WATCHED TYPE")
+    color = COLORS.get(reason, 0x7289DA)
+    label = REASON_LABELS.get(reason, "✈️ WATCHED TYPE")
 
     links = []
     if fr24_link:
@@ -508,9 +543,10 @@ def build_embed(flight, reason, image_cache=None):
             {"name": "Heading",           "value": heading_str,                            "inline": True},
             {"name": "Position",          "value": pos_str,                                "inline": True},
             {"name": "First Seen",        "value": ts_str,                                 "inline": True},
+            {"name": "Status",            "value": status,                                 "inline": True},
             {"name": "Links",             "value": " · ".join(links) if links else "N/A", "inline": False},
         ],
-        "footer": {"text": f"FR24 Monitor • Detected {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"},
+        "footer": {"text": f"FR24 Monitor • {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"},
     }
 
     if description:
@@ -521,71 +557,51 @@ def build_embed(flight, reason, image_cache=None):
     return embed
 
 
-def build_most_tracked_embed(most_tracked):
-    if not most_tracked:
-        return None
-
-    lines = []
-    for i, flight in enumerate(most_tracked, 1):
-        try:
-            callsign = flight.get("callsign", "N/A")
-            ftype    = flight.get("model", "N/A")
-            count    = flight.get("clicks", "?")
-            lines.append(f"`{i}.` {callsign} — {ftype} — {count} trackers")
-        except Exception:
-            lines.append(f"`{i}.` Data unavailable")
-
-    return {
-        "title": "📡 Top 10 Most Tracked Right Now",
-        "description": "\n".join(lines),
-        "color": 0x9B59B6,
-        "footer": {"text": f"FR24 Monitor • {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"},
-    }
-
-
-def send_discord(content=None, embed=None):
+def send_discord(webhook_url, content=None, embed=None):
+    if not webhook_url:
+        return
     payload = {}
     if content:
         payload["content"] = content
     if embed:
         payload["embeds"] = [embed]
     try:
-        r = requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10)
+        r = requests.post(webhook_url, json=payload, timeout=10)
         if r.status_code == 429:
             retry_after = float(r.json().get("retry_after", 2))
             log.warning(f"Rate limited. Waiting {retry_after}s")
             time.sleep(retry_after)
-            requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10)
+            requests.post(webhook_url, json=payload, timeout=10)
         elif r.status_code not in (200, 204):
             log.error(f"Discord error {r.status_code}: {r.text}")
     except Exception as e:
         log.error(f"Discord send failed: {e}")
 
 
-def send_flight(flight, reason, image_cache=None):
-    embed   = build_embed(flight, reason, image_cache=image_cache)
+def send_flight(flight, reason, webhook_url, image_cache=None, is_new=True):
+    embed   = build_embed(flight, reason, image_cache=image_cache, is_new=is_new)
     content = "@everyone 🚨 Rare aircraft detected!" if reason == "rare" else None
-    send_discord(content=content, embed=embed)
+    send_discord(webhook_url, content=content, embed=embed)
     time.sleep(DISCORD_MESSAGE_DELAY)
 
 
-def send_summary(total, rare_count, squawk_count, excluded_count):
+def send_summary(total, rare_count, squawk_count, filtered_count):
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    send_discord(embed={
+    send_discord(DISCORD_WEBHOOK_URL, embed={
         "title": "📊 Scan Complete",
         "color": 0x2ECC71,
         "fields": [
-            {"name": "✈️ Flights Shown",  "value": str(total),          "inline": True},
-            {"name": "🚨 Rare Detected",  "value": str(rare_count),     "inline": True},
-            {"name": "⚠️ Squawk Alerts",  "value": str(squawk_count),   "inline": True},
-            {"name": "🚫 Filtered Out",   "value": str(excluded_count), "inline": True},
+            {"name": "✈️ Flights",       "value": str(total),          "inline": True},
+            {"name": "🚨 Rare",          "value": str(rare_count),     "inline": True},
+            {"name": "⚠️ Squawks",       "value": str(squawk_count),   "inline": True},
+            {"name": "📁 Filtered",      "value": str(filtered_count), "inline": True},
         ],
         "footer": {"text": f"FR24 Monitor • {now}"},
     })
 
 
 def send_fetch_error():
-    send_discord(embed={
+    send_discord(DISCORD_WEBHOOK_URL, embed={
         "title": "❌ FR24 Fetch Failed",
         "description": "Could not reach FlightRadar24. The site may be down or your login details are wrong.",
         "color": 0xFF0000,
@@ -594,9 +610,9 @@ def send_fetch_error():
 
 
 def send_zero_flights():
-    send_discord(embed={
+    send_discord(DISCORD_WEBHOOK_URL, embed={
         "title": "👻 0 Flights Found",
-        "description": "Somehow nothing matched your filter this scan.\nConsolation prize: [JetPhotos Latest](https://www.jetphotos.com/latest-photos)",
+        "description": "Nothing matched this scan.\nConsolation prize: [JetPhotos Latest](https://www.jetphotos.com/latest-photos)",
         "color": 0x95A5A6,
         "footer": {"text": f"FR24 Monitor • {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"},
     })
@@ -608,56 +624,77 @@ def send_zero_flights():
 def main():
     log.info("FR24 Monitor starting...")
 
-    fr24, all_flights = fetch_flights()
+    previous_seen_ids = load_seen_ids()
+    daily_log         = load_daily_log()
 
+    fr24, all_flights = fetch_flights()
     if all_flights is None:
         send_fetch_error()
         return
 
-    matched        = []
-    excluded_count = 0
+    matched  = []
+    filtered = []
 
     for flight in all_flights:
         if not matches_watchlist(flight):
             continue
         if is_excluded(flight):
-            excluded_count += 1
             continue
-        matched.append(flight)
+        if is_filtered(flight):
+            filtered.append(flight)
+        else:
+            matched.append(flight)
 
-    log.info(f"{len(matched)} flights matched after exclusions ({excluded_count} excluded)")
+    log.info(f"{len(matched)} main, {len(filtered)} filtered")
 
-    if not matched:
+    all_to_send = matched + filtered
+
+    if not all_to_send:
         send_zero_flights()
-    else:
-        # Prefetch all images in parallel before sending any embeds
-        log.info("Prefetching images...")
-        image_cache = prefetch_images(matched)
+        return
 
-        rare_count   = 0
-        squawk_count = 0
+    # Prefetch all images in parallel
+    log.info("Prefetching images...")
+    image_cache = prefetch_images(all_to_send)
 
-        for flight in matched:
-            reason = get_detection_reason(flight)
-            if reason == "rare":
-                rare_count += 1
-            if reason == "squawk":
-                squawk_count += 1
-            send_flight(flight, reason, image_cache=image_cache)
+    rare_count   = 0
+    squawk_count = 0
+    current_ids  = set()
 
-        send_summary(
-            total=len(matched),
-            rare_count=rare_count,
-            squawk_count=squawk_count,
-            excluded_count=excluded_count,
-        )
+    # Send main flights
+    for flight in matched:
+        fid    = getattr(flight, "id", None)
+        is_new = fid not in previous_seen_ids
+        if fid:
+            current_ids.add(fid)
 
-    most_tracked = fetch_most_tracked(fr24)
-    if most_tracked:
-        embed = build_most_tracked_embed(most_tracked)
-        if embed:
-            time.sleep(DISCORD_MESSAGE_DELAY)
-            send_discord(embed=embed)
+        reason = get_detection_reason(flight)
+        if reason == "rare":
+            rare_count += 1
+        if reason == "squawk":
+            squawk_count += 1
+
+        send_flight(flight, reason, DISCORD_WEBHOOK_URL, image_cache=image_cache, is_new=is_new)
+
+    # Send filtered flights
+    for flight in filtered:
+        fid    = getattr(flight, "id", None)
+        is_new = fid not in previous_seen_ids
+        if fid:
+            current_ids.add(fid)
+        send_flight(flight, "filtered", DISCORD_WEBHOOK_FILTERED, image_cache=image_cache, is_new=is_new)
+
+    send_summary(
+        total=len(matched),
+        rare_count=rare_count,
+        squawk_count=squawk_count,
+        filtered_count=len(filtered),
+    )
+
+    # Update persistent storage
+    save_seen_ids(current_ids)
+    daily_log = update_daily_log(daily_log, matched, filtered, rare_count, squawk_count)
+    save_daily_log(daily_log)
 
     log.info("Done.")
 

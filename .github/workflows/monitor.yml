@@ -1,7 +1,6 @@
 name: FR24 Monitor
 
 on:
- 
   workflow_dispatch:
 
 concurrency:
@@ -11,14 +10,11 @@ concurrency:
 jobs:
   run-monitor:
     runs-on: ubuntu-latest
-    timeout-minutes: 10   # prevents stuck runs from blocking future runs
+    timeout-minutes: 10
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
-
-      - name: Heartbeat log
-        run: echo "Starting FR24 monitor at $(date -u)"
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -30,7 +26,16 @@ jobs:
 
       - name: Run FR24 monitor
         env:
-          FR24_USERNAME:       ${{ secrets.FR24_USERNAME }}
-          FR24_PASSWORD:       ${{ secrets.FR24_PASSWORD }}
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          FR24_USERNAME:            ${{ secrets.FR24_USERNAME }}
+          FR24_PASSWORD:            ${{ secrets.FR24_PASSWORD }}
+          DISCORD_WEBHOOK_URL:      ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_WEBHOOK_FILTERED: ${{ secrets.DISCORD_WEBHOOK_FILTERED }}
         run: python monitor.py
+
+      - name: Commit updated seen IDs and daily log
+        run: |
+          git config user.name "FR24 Monitor"
+          git config user.email "fr24monitor@users.noreply.github.com"
+          git add seen_ids.json daily_log.json || true
+          git diff --staged --quiet || git commit -m "Update seen IDs and daily log [skip ci]"
+          git push || true

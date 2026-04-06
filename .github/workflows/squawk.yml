@@ -1,0 +1,32 @@
+name: FR24 Squawk Scanner
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: fr24-squawk
+  cancel-in-progress: true
+
+jobs:
+  run-squawk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests FlightRadarAPI
+
+      - name: Run Squawk Scanner
+        env:
+          FR24_USERNAME:          ${{ secrets.FR24_USERNAME }}
+          FR24_PASSWORD:          ${{ secrets.FR24_PASSWORD }}
+          DISCORD_WEBHOOK_SQUAWK: ${{ secrets.DISCORD_WEBHOOK_SQUAWK }}
+        run: python squawk.py

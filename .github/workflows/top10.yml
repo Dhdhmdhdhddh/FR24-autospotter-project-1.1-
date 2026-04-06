@@ -1,0 +1,32 @@
+name: FR24 Top 10
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: fr24-top10
+  cancel-in-progress: true
+
+jobs:
+  run-top10:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests FlightRadarAPI
+
+      - name: Run Top 10
+        env:
+          FR24_USERNAME:         ${{ secrets.FR24_USERNAME }}
+          FR24_PASSWORD:         ${{ secrets.FR24_PASSWORD }}
+          DISCORD_WEBHOOK_TOP10: ${{ secrets.DISCORD_WEBHOOK_TOP10 }}
+        run: python top10.py

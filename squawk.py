@@ -153,7 +153,7 @@ def main():
 
     for flight in flights:
         embed = build_squawk_embed(flight)
-        send_discord(DISCORD_WEBHOOK_SQUAWK, content="@everyone", embed=embed)
+        send_discord(DISCORD_WEBHOOK_SQUAWK, content="@", embed=embed)
         time.sleep(1.5)
 
     log.info("Done.")

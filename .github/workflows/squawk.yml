@@ -22,7 +22,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install requests FlightRadarAPI
+        run: pip install requests FlightRadarAPI beautifulsoup4
 
       - name: Run Squawk Scanner
         env:

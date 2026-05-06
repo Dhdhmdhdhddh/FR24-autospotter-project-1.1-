@@ -235,11 +235,11 @@ def get_all_zones(zones, parent_name=""):
 
 # Browser-like headers to bypass FR24 bot detection (added ~Apr 29 2026)
 FR24_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Referer": "https://www.flightradar24.com/",
-    "Origin": "https://www.flightradar24.com",
-    "Accept": "application/json, text/plain, */*",
+    "User-Agent": "FlightRadar24/8.29.0 CFNetwork/1492.0.1 Darwin/23.3.0",
+    "Accept": "*/*",
     "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
 }
 
 

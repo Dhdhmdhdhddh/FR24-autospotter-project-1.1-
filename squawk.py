@@ -44,8 +44,23 @@ def get_all_zones(zones, parent_name=""):
 
 def fetch_squawks():
     try:
-        fr24 = FlightRadar24API(FR24_USERNAME, FR24_PASSWORD)
-        zones = fr24.get_zones()
+fr24 = FlightRadar24API(FR24_USERNAME, FR24_PASSWORD)
+
+# Fix for FR24 bot detection added ~Apr 29 2026
+_headers = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Referer": "https://www.flightradar24.com/",
+    "Origin": "https://www.flightradar24.com",
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "en-US,en;q=0.9",
+}
+for attr in ("_session", "session", "_api"):
+    obj = getattr(fr24, attr, None)
+    if obj and hasattr(obj, "headers"):
+        obj.headers.update(_headers)
+        break
+
+zones = fr24.get_zones()
         zone_list = get_all_zones(zones)
 
         seen_ids = set()

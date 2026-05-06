@@ -233,25 +233,33 @@ def get_all_zones(zones, parent_name=""):
     return result
 
 
-def fetch_flights():
-    try:
-fr24 = FlightRadar24API(FR24_USERNAME, FR24_PASSWORD)
-
-# Fix for FR24 bot detection added ~Apr 29 2026
-_headers = {
+# Browser-like headers to bypass FR24 bot detection (added ~Apr 29 2026)
+FR24_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     "Referer": "https://www.flightradar24.com/",
     "Origin": "https://www.flightradar24.com",
     "Accept": "application/json, text/plain, */*",
     "Accept-Language": "en-US,en;q=0.9",
 }
-for attr in ("_session", "session", "_api"):
-    obj = getattr(fr24, attr, None)
-    if obj and hasattr(obj, "headers"):
-        obj.headers.update(_headers)
-        break
 
-seen_ids = set()
+
+def patch_fr24_headers(fr24):
+    """Inject browser-like headers into the FR24 API session."""
+    for attr in ("_session", "session", "_api"):
+        obj = getattr(fr24, attr, None)
+        if obj and hasattr(obj, "headers"):
+            obj.headers.update(FR24_HEADERS)
+            log.info(f"Patched headers on fr24.{attr}")
+            return
+    log.warning("Could not find session object to patch headers")
+
+
+def fetch_flights():
+    try:
+        fr24 = FlightRadar24API(FR24_USERNAME, FR24_PASSWORD)
+        patch_fr24_headers(fr24)
+
+        seen_ids = set()
         all_flights = []
 
         for ftype in WATCHLIST_TYPES:
@@ -483,8 +491,8 @@ def build_embed(flight, reason, image_cache=None, is_new=True):
     ftype    = fmt(getattr(flight, "aircraft_code",          None))
     callsign = fmt(getattr(flight, "callsign",               None))
     airline  = fmt(getattr(flight, "airline_icao",           None))
-    origin   = fmt(getattr(flight, "origin_airport_iata",       None))
-    dest     = fmt(getattr(flight, "destination_airport_iata",  None))
+    origin   = fmt(getattr(flight, "origin_airport_iata",    None))
+    dest     = fmt(getattr(flight, "destination_airport_iata", None))
     squawk   = fmt(getattr(flight, "squawk",                 None))
     ts       = getattr(flight, "time",           None)
     alt      = getattr(flight, "altitude",       None)
@@ -606,10 +614,10 @@ def send_summary(total, rare_count, squawk_count, filtered_count):
         "title": "📊 Scan Complete",
         "color": 0x2ECC71,
         "fields": [
-            {"name": "✈️ Flights",       "value": str(total),          "inline": True},
-            {"name": "🚨 Rare",          "value": str(rare_count),     "inline": True},
-            {"name": "⚠️ Squawks",       "value": str(squawk_count),   "inline": True},
-            {"name": "📁 Filtered",      "value": str(filtered_count), "inline": True},
+            {"name": "✈️ Flights",  "value": str(total),          "inline": True},
+            {"name": "🚨 Rare",     "value": str(rare_count),     "inline": True},
+            {"name": "⚠️ Squawks",  "value": str(squawk_count),   "inline": True},
+            {"name": "📁 Filtered", "value": str(filtered_count), "inline": True},
         ],
         "footer": {"text": f"FR24 Monitor • {now}"},
     })
@@ -668,7 +676,6 @@ def main():
         send_zero_flights()
         return
 
-    # Prefetch all images in parallel
     log.info("Prefetching images...")
     image_cache = prefetch_images(all_to_send)
 
@@ -676,22 +683,18 @@ def main():
     squawk_count = 0
     current_ids  = set()
 
-    # Send main flights
     for flight in matched:
         fid    = getattr(flight, "id", None)
         is_new = fid not in previous_seen_ids
         if fid:
             current_ids.add(fid)
-
         reason = get_detection_reason(flight)
         if reason == "rare":
             rare_count += 1
         if reason == "squawk":
             squawk_count += 1
-
         send_flight(flight, reason, DISCORD_WEBHOOK_URL, image_cache=image_cache, is_new=is_new)
 
-    # Send filtered flights
     for flight in filtered:
         fid    = getattr(flight, "id", None)
         is_new = fid not in previous_seen_ids
@@ -706,7 +709,6 @@ def main():
         filtered_count=len(filtered),
     )
 
-    # Update persistent storage
     save_seen_ids(current_ids)
     daily_log = update_daily_log(daily_log, matched, filtered, rare_count, squawk_count)
     save_daily_log(daily_log)

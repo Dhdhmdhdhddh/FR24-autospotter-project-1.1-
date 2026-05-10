@@ -1,52 +1,26 @@
 import os
+import asyncio
 import time
 import logging
 import requests
 from datetime import datetime, timezone
+from fr24 import FR24
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
 DISCORD_WEBHOOK_TOP10 = os.environ.get("DISCORD_WEBHOOK_TOP10", "")
 
-BROWSER_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Referer": "https://www.flightradar24.com/",
-    "Origin": "https://www.flightradar24.com",
-    "Accept": "application/json, text/plain, */*",
-    "Accept-Language": "en-US,en;q=0.9",
-}
 
-
-def fetch_most_tracked():
+async def fetch_top_flights():
     try:
-        r = requests.get(
-            "https://www.flightradar24.com/flights/most-tracked",
-            headers=BROWSER_HEADERS,
-            timeout=10
-        )
-        r.raise_for_status()
-        data = r.json()
-        flights = data.get("data", data.get("flights", []))
-        return flights[:10]
+        async with FR24() as client:
+            result = await client.top_flights.fetch(limit=10)
+            data = result.to_dict()
+            return data.get("flights", [])
     except Exception as e:
-        log.warning(f"Could not fetch most tracked: {e}")
+        log.warning(f"Could not fetch top flights: {e}")
         return []
-
-
-def fetch_tracker_count(flight_id):
-    try:
-        r = requests.get(
-            f"https://data-live.flightradar24.com/clickhandler/?flight={flight_id}",
-            headers=BROWSER_HEADERS,
-            timeout=5
-        )
-        if r.status_code == 200:
-            data = r.json()
-            return data.get("stats", {}).get("visible", {}).get("tracking", None)
-    except Exception as e:
-        log.warning(f"Tracker fetch exception for {flight_id}: {e}")
-    return None
 
 
 def send_discord(webhook_url, embed):
@@ -65,24 +39,23 @@ def send_discord(webhook_url, embed):
 
 def main():
     log.info("Top 10 fetcher starting...")
-    most_tracked = fetch_most_tracked()
+    flights = asyncio.run(fetch_top_flights())
 
-    if not most_tracked:
+    if not flights:
         log.info("No data returned.")
         return
 
+    log.info(f"Raw first flight: {flights[0] if flights else 'empty'}")
+
     lines = []
-    for i, flight in enumerate(most_tracked, 1):
+    for i, flight in enumerate(flights[:10], 1):
         try:
-            callsign   = flight.get("callsign") or flight.get("flight") or "N/A"
-            ftype      = flight.get("type") or flight.get("model") or "N/A"
-            origin     = flight.get("from_city") or flight.get("from_iata") or "N/A"
-            dest       = flight.get("to_city") or flight.get("to_iata") or "N/A"
-            flight_id  = flight.get("flight_id")
-            trackers   = fetch_tracker_count(flight_id) if flight_id else None
-            count_str  = f"{trackers:,} trackers" if trackers else f"{flight.get('clicks', '?')} clicks"
-            lines.append(f"`{i}.` **{callsign}** — {ftype} — {origin} → {dest} — {count_str}")
-            time.sleep(0.3)
+            callsign = flight.get("callsign") or flight.get("flight") or "N/A"
+            ftype    = flight.get("type") or flight.get("model") or "N/A"
+            origin   = flight.get("from_city") or flight.get("from_iata") or "N/A"
+            dest     = flight.get("to_city") or flight.get("to_iata") or "N/A"
+            trackers = flight.get("viewers") or flight.get("tracking") or flight.get("clicks") or "?"
+            lines.append(f"`{i}.` **{callsign}** — {ftype} — {origin} → {dest} — {trackers} 👁️")
         except Exception:
             lines.append(f"`{i}.` Data unavailable")
 

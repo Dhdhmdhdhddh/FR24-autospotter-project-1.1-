@@ -256,7 +256,7 @@ def patch_fr24_headers(fr24):
 
 def fetch_flights():
     try:
-        fr24 = FlightRadar24API(FR24_USERNAME, FR24_PASSWORD)
+        fr24 = FlightRadar24API()
         patch_fr24_headers(fr24)
 
         seen_ids = set()

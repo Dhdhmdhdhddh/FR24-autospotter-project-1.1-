@@ -41,7 +41,7 @@ def fetch_most_tracked():
 			flights = data
 		else:
 			flights = []
-		return flights[:10]
+		log.info(f"Raw first flight: {flights[0] if flights else 'empty'}") return flights[:10]
 	except Exception as e:
 		log.warning(f"Could not fetch most tracked: {e}")
 		return []

@@ -44,9 +44,8 @@ def fetch_tracker_count(flight_id):
         if r.status_code == 200:
             data = r.json()
             return data.get("stats", {}).get("visible", {}).get("tracking", None)
-    except Exception:
-        pass
-    log.warning(f"Tracker fetch failed for {flight_id}: status {r.status_code}")     
+    except Exception as e:
+        log.warning(f"Tracker fetch exception for {flight_id}: {e}")
     return None
 
 

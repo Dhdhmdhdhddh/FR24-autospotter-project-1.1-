@@ -17,8 +17,8 @@ async def fetch_top_flights():
         async with FR24() as client:
             result = await client.top_flights.fetch(limit=10)
             data = result.to_dict()
-            log.info(f"Raw data keys: {data}")
-            return data.get("flights", [])
+            
+            return data.get("scoreboard_list", [])
     except Exception as e:
         log.warning(f"Could not fetch top flights: {e}")
         return []

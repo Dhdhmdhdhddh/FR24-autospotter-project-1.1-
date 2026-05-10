@@ -72,13 +72,15 @@ def main():
 
 	lines = []
 	for i, flight in enumerate(most_tracked, 1):
-		try:
-			callsign = flight.get("callsign", "N/A")
-			ftype    = flight.get("model", "N/A")
-			count    = flight.get("clicks", "?")
-			lines.append(f"`{i}.` **{callsign}** — {ftype} — {count} trackers")
-		except Exception:
-			lines.append(f"`{i}.` Data unavailable")
+    try:
+        callsign = flight.get("callsign") or flight.get("flight") or "N/A"
+        ftype    = flight.get("type") or flight.get("model") or "N/A"
+        origin   = flight.get("from_city") or flight.get("from_iata") or "N/A"
+        dest     = flight.get("to_city") or flight.get("to_iata") or "N/A"
+        count    = flight.get("clicks", "?")
+        lines.append(f"`{i}.` **{callsign}** — {ftype} — {origin} → {dest} — {count} trackers")
+    except Exception:
+        lines.append(f"`{i}.` Data unavailable")
 
 	embed = {
 		"title": "📡 Top 10 Most Tracked Right Now",

@@ -20,78 +20,78 @@ DISCORD_WEBHOOK_TOP10  = os.environ.get("DISCORD_WEBHOOK_TOP10", "")
 
 
 def fetch_most_tracked():
-    try:
-fr24 = FlightRadar24API(FR24_USERNAME, FR24_PASSWORD)
+	try:
+		fr24 = FlightRadar24API()
 
-# Fix for FR24 bot detection added ~Apr 29 2026
-_headers = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Referer": "https://www.flightradar24.com/",
-    "Origin": "https://www.flightradar24.com",
-    "Accept": "application/json, text/plain, */*",
-    "Accept-Language": "en-US,en;q=0.9",
-}
-for attr in ("_session", "session", "_api"):
-    obj = getattr(fr24, attr, None)
-    if obj and hasattr(obj, "headers"):
-        obj.headers.update(_headers)
-        break
+		# Fix for FR24 bot detection added ~Apr 29 2026
+		_headers = {
+			"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+			"Referer": "https://www.flightradar24.com/",
+			"Origin": "https://www.flightradar24.com",
+			"Accept": "application/json, text/plain, */*",
+			"Accept-Language": "en-US,en;q=0.9",
+		}
+		for attr in ("_session", "session", "_api"):
+			obj = getattr(fr24, attr, None)
+			if obj and hasattr(obj, "headers"):
+				obj.headers.update(_headers)
+				break
 
-result = fr24.get_most_tracked()
-        if isinstance(result, dict):
-            flights = result.get("flights", result.get("data", []))
-        elif isinstance(result, list):
-            flights = result
-        else:
-            flights = []
-        return flights[:10]
-    except Exception as e:
-        log.warning(f"Could not fetch most tracked: {e}")
-        return []
+		result = fr24.get_most_tracked()
+		if isinstance(result, dict):
+			flights = result.get("flights", result.get("data", []))
+		elif isinstance(result, list):
+			flights = result
+		else:
+			flights = []
+		return flights[:10]
+	except Exception as e:
+		log.warning(f"Could not fetch most tracked: {e}")
+		return []
 
 
 def send_discord(webhook_url, embed):
-    if not webhook_url:
-        return
-    try:
-        r = requests.post(webhook_url, json={"embeds": [embed]}, timeout=10)
-        if r.status_code == 429:
-            time.sleep(float(r.json().get("retry_after", 2)))
-            requests.post(webhook_url, json={"embeds": [embed]}, timeout=10)
-        elif r.status_code not in (200, 204):
-            log.error(f"Discord error {r.status_code}: {r.text}")
-    except Exception as e:
-        log.error(f"Discord send failed: {e}")
+	if not webhook_url:
+		return
+	try:
+		r = requests.post(webhook_url, json={"embeds": [embed]}, timeout=10)
+		if r.status_code == 429:
+			time.sleep(float(r.json().get("retry_after", 2)))
+			requests.post(webhook_url, json={"embeds": [embed]}, timeout=10)
+		elif r.status_code not in (200, 204):
+			log.error(f"Discord error {r.status_code}: {r.text}")
+	except Exception as e:
+		log.error(f"Discord send failed: {e}")
 
 
 def main():
-    log.info("Top 10 fetcher starting...")
-    most_tracked = fetch_most_tracked()
+	log.info("Top 10 fetcher starting...")
+	most_tracked = fetch_most_tracked()
 
-    if not most_tracked:
-        log.info("No data returned.")
-        return
+	if not most_tracked:
+		log.info("No data returned.")
+		return
 
-    lines = []
-    for i, flight in enumerate(most_tracked, 1):
-        try:
-            callsign = flight.get("callsign", "N/A")
-            ftype    = flight.get("model", "N/A")
-            count    = flight.get("clicks", "?")
-            lines.append(f"`{i}.` **{callsign}** — {ftype} — {count} trackers")
-        except Exception:
-            lines.append(f"`{i}.` Data unavailable")
+	lines = []
+	for i, flight in enumerate(most_tracked, 1):
+		try:
+			callsign = flight.get("callsign", "N/A")
+			ftype    = flight.get("model", "N/A")
+			count    = flight.get("clicks", "?")
+			lines.append(f"`{i}.` **{callsign}** — {ftype} — {count} trackers")
+		except Exception:
+			lines.append(f"`{i}.` Data unavailable")
 
-    embed = {
-        "title": "📡 Top 10 Most Tracked Right Now",
-        "description": "\n".join(lines),
-        "color": 0x9B59B6,
-        "footer": {"text": f"FR24 Monitor • {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"},
-    }
+	embed = {
+		"title": "📡 Top 10 Most Tracked Right Now",
+		"description": "\n".join(lines),
+		"color": 0x9B59B6,
+		"footer": {"text": f"FR24 Monitor • {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"},
+	}
 
-    send_discord(DISCORD_WEBHOOK_TOP10, embed)
-    log.info("Done.")
+	send_discord(DISCORD_WEBHOOK_TOP10, embed)
+	log.info("Done.")
 
 
 if __name__ == "__main__":
-    main()
+	main()

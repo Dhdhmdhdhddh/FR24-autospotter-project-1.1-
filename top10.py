@@ -50,15 +50,33 @@ def main():
 
     lines = []
     for i, flight in enumerate(flights[:10], 1):
-        try:
-            callsign = flight.get("callsign") or flight.get("flight") or "N/A"
-            ftype    = flight.get("type") or flight.get("model") or "N/A"
-            origin   = flight.get("from_city") or flight.get("from_iata") or "N/A"
-            dest     = flight.get("to_city") or flight.get("to_iata") or "N/A"
-            trackers = flight.get("viewers") or flight.get("tracking") or flight.get("clicks") or "?"
-            lines.append(f"`{i}.` **{callsign}** — {ftype} — {origin} → {dest} — {trackers} 👁️")
-        except Exception:
-            lines.append(f"`{i}.` Data unavailable")
+    try:
+        callsign    = flight.get("callsign") or flight.get("flight_number") or "N/A"
+        fnum        = flight.get("flight_number") or "N/A"
+        ftype       = flight.get("full_description") or flight.get("type") or "N/A"
+        origin      = flight.get("from_city") or flight.get("from_iata") or "N/A"
+        dest        = flight.get("to_city") or flight.get("to_iata") or "N/A"
+        live        = f"{flight.get('live_clicks', '?'):,}"
+        total       = f"{flight.get('total_clicks', '?'):,}"
+        squawk      = flight.get("squawk")
+        flight_id   = flight.get("flight_id")
+        fr24_link   = f"https://www.flightradar24.com/{callsign}/{flight_id}" if flight_id and callsign != "N/A" else None
+
+        line = f"`{i}.` **{callsign}**"
+        if fnum and fnum != "N/A" and fnum != callsign:
+            line += f" ({fnum})"
+        line += f"\n　　{ftype} · {origin} → {dest}"
+        line += f"\n　　👁️ {live} live · {total} total"
+        if squawk:
+            squawk_str = str(squawk) if not isinstance(squawk, str) else squawk
+            warning = " ⚠️" if squawk_str in ("7500", "7600", "7700") else ""
+            line += f" · Squawk {squawk_str}{warning}"
+        if fr24_link:
+            line += f" · [Track]({fr24_link})"
+
+        lines.append(line)
+    except Exception:
+        lines.append(f"`{i}.` Data unavailable")
 
     embed = {
         "title": "📡 Top 10 Most Tracked Right Now",

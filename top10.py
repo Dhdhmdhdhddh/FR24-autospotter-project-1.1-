@@ -15,7 +15,7 @@ DISCORD_WEBHOOK_TOP10 = os.environ.get("DISCORD_WEBHOOK_TOP10", "")
 async def fetch_top_flights():
     try:
         async with FR24() as client:
-            result = await client.top_flights.fetch(limit=10)
+            result = await client.top_flights.fetch(limit=30)
             data = result.to_dict()
             
             return data.get("scoreboard_list", [])

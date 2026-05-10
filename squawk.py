@@ -44,7 +44,7 @@ def get_all_zones(zones, parent_name=""):
 
 def fetch_squawks():
     try:
-fr24 = FlightRadar24API(FR24_USERNAME, FR24_PASSWORD)
+fr24 = FlightRadar24API()
 
 # Fix for FR24 bot detection added ~Apr 29 2026
 _headers = {

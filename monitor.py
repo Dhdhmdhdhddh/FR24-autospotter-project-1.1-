@@ -58,7 +58,7 @@ WATCHLIST_TYPES = [
 WATCHLIST_REGS     = ["N990XB"]
 WATCHLIST_AIRLINES = ["IGY"]
 SQUAWK_WATCH       = ["7500", "7600", "7700"]
-RARE_TYPES         = ["E4", "VC25", "WB57", "CONC", "BSCA"]
+RARE_TYPES         = ["E4", "VC25", "CONC", "BSCA"]
 
 FILTERED_AIRLINES = [
     "AVJ", "HYH", "SHY", "UTA", "AFG", "FJO", "SWT", "DHK", "DHL",

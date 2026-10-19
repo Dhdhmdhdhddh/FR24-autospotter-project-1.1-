@@ -22,7 +22,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install requests fr24
+        run: pip install requests "fr24[httpx]"
 
       - name: Run Top 10
         env:
